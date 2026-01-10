@@ -8,7 +8,7 @@ uv run workshop-{n}/[file].py
 
 to see the code in action.
 
-Workshop 1 overview:
+# Workshop 1 overview:
 
 ## Post generator
 
