@@ -86,13 +86,16 @@ def download_image(image_url: str, save_path: str) -> str:
     return save_path
 
 
-def post_to_mastodon(content: str, image_url: str) -> dict:
+def post_to_mastodon(content: str, image_url: str = None) -> dict:
     """Post content and image to Mastodon."""
     mastodon = Mastodon(
         access_token=os.environ["MASTODON_ACCESS_TOKEN"],
         api_base_url=os.environ["MASTODON_INSTANCE_URL"],
     )
 
+    if image_url is None:
+        return mastodon.status_post(content)
+    
     # Download the image locally
     local_image_path = "temp_image.webp"
     download_image(image_url, local_image_path)
