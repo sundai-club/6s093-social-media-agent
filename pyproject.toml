@@ -10,4 +10,5 @@ dependencies = [
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
     "python-telegram-bot>=21.0",
+    "replicate"
 ]
