@@ -1,15 +1,10 @@
 """
 Workshop 3: Keyword Responder with Database Tracking
-Extends Workshop 1's keyword responder to save responses to SQLite database.
+Extends the base keyword responder to save responses to SQLite database.
 
 This version can be deployed to a GCP VM and tracked via the FastAPI server.
 """
 
-import sys
-from pathlib import Path
-
-# Add workshop-1 to path so we can import from it
-sys.path.insert(0, str(Path(__file__).parent.parent / "workshop-1"))
 from keyword_responder import (
     read_business_docs,
     search_mastodon,
@@ -17,7 +12,6 @@ from keyword_responder import (
     post_reply,
     SEARCH_KEYWORDS,
 )
-
 from database import get_db, save_response
 
 

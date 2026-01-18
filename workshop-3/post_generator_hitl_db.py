@@ -2,9 +2,9 @@
 Workshop 3: Post Generator with Human-in-the-Loop and Database Tracking
 
 Combines:
-- Workshop 1: Post generation + Mastodon posting
-- Workshop 2: Telegram approval workflow
-- Workshop 3: SQLite database tracking
+- Post generation + Mastodon posting
+- Telegram approval workflow
+- SQLite database tracking
 
 Full flow:
 1. Generate post using LLM
@@ -14,7 +14,6 @@ Full flow:
 """
 
 import os
-import sys
 import asyncio
 from pathlib import Path
 
@@ -22,10 +21,7 @@ from dotenv import load_dotenv
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 
-# Add workshop-1 to path so we can import from it
-sys.path.insert(0, str(Path(__file__).parent.parent / "workshop-1"))
 from post_generator import read_business_docs, generate_post, post_to_mastodon
-
 from database import get_db, save_post
 
 load_dotenv(Path(__file__).parent.parent / ".env")

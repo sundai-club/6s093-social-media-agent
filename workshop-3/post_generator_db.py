@@ -1,17 +1,11 @@
 """
 Workshop 3: Post Generator with Database Tracking
-Extends Workshop 1's post generator to save posts to SQLite database.
+Extends the base post generator to save posts to SQLite database.
 
 This version can be deployed to a GCP VM and tracked via the FastAPI server.
 """
 
-import sys
-from pathlib import Path
-
-# Add workshop-1 to path so we can import from it
-sys.path.insert(0, str(Path(__file__).parent.parent / "workshop-1"))
 from post_generator import read_business_docs, generate_post, post_to_mastodon
-
 from database import get_db, save_post
 
 
