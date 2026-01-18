@@ -66,6 +66,14 @@ uv run workshop-3/keyword_responder_db.py --post
 
 Extends workshop-1's keyword responder - now saves responses to SQLite database.
 
+### Full Pipeline (Telegram + Mastodon + Database)
+
+```bash
+uv run workshop-3/post_generator_hitl_db.py --approve --post
+```
+
+Complete workflow: generates post → sends to Telegram for approval → posts to Mastodon if approved → saves to database.
+
 ### Key Deployment Prompts (for Claude Code)
 
 See `workshop-3/prompts.md` for full details. Key prompts:

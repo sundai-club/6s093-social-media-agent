@@ -139,6 +139,7 @@ PROJECT_ID=your-project-id-here
 - `api.py` - FastAPI server with REST endpoints
 - `post_generator_db.py` - Extends workshop-1's post generator (saves to database)
 - `keyword_responder_db.py` - Extends workshop-1's keyword responder (saves to database)
+- `post_generator_hitl_db.py` - Full pipeline: Telegram approval + Mastodon posting + database tracking
 
 ## Running Locally
 
@@ -151,6 +152,9 @@ uv run workshop-3/post_generator_db.py
 
 # Generate keyword responses (saves to database)
 uv run workshop-3/keyword_responder_db.py
+
+# Full pipeline: Telegram approval + post to Mastodon + save to database
+uv run workshop-3/post_generator_hitl_db.py --approve --post
 ```
 
 ## API Endpoints
