@@ -32,6 +32,8 @@ Same as above, you can remove the --post flag if you do not want to publish the 
 
 See `workshop-2-hitloop/` folder for Telegram-based human approval workflow.
 
+Use chatIDrobot to get chatID
+
 ## Workshop 3 overview:
 
 Workshop 3 focuses on **backend and cloud deployment** using Google Cloud Platform (GCP) and Claude Code. It builds on Workshop 1 by adding SQLite database tracking and a FastAPI server.
@@ -82,6 +84,65 @@ See `workshop-3/prompts.md` for full details. Key prompts:
 2. `can we deploy a e2 vm to that project? Please turn on any necessary apis`
 3. `we have this virtual machine in gcloud. you have the gcloud cli to ssh into that machine. We need to install sqlite`
 4. `let's also deploy a fastapi server that uses that database and make sure the fast api is setup properly as a service on linux`
+
+## Workshop 4 overview:
+
+Workshop 4 adds **intelligent document monitoring** with automatic social media posting. It watches your business docs for changes, uses semantic embeddings for context-aware post generation, and includes a significance threshold to avoid posting on minor edits.
+
+### Doc Watcher
+
+```bash
+# Check for changes (dry run)
+uv run workshop-4/doc_watcher.py
+
+# Check and post about changes
+uv run workshop-4/doc_watcher.py --post
+
+# Event-driven watch mode (recommended)
+uv run workshop-4/doc_watcher.py --watch
+
+# Watch and auto-post on changes
+uv run workshop-4/doc_watcher.py --watch --post
+```
+
+Monitors the `business-docs/` folder for file changes. When significant changes are detected:
+1. Computes diffs to understand what changed
+2. Updates semantic embeddings for changed documents
+3. Generates and posts about the changes to Mastodon
+
+### Significance Threshold
+
+By default, only changes exceeding **100 words** or **20 lines** trigger posts. Minor edits (typo fixes, formatting) are automatically skipped.
+
+```bash
+# Lower threshold to trigger on smaller changes
+uv run workshop-4/doc_watcher.py --watch --min-words 50
+
+# Higher threshold for major changes only
+uv run workshop-4/doc_watcher.py --watch --min-words 200 --min-lines 40
+```
+
+### Embeddings System
+
+```bash
+# Generate embeddings for business docs (runs automatically with doc_watcher)
+uv run workshop-4/embeddings.py
+```
+
+Uses OpenAI-compatible embeddings to create semantic vectors of your documentation, enabling context-aware post generation.
+
+### Other Commands
+
+```bash
+# Show current document tracking state
+uv run workshop-4/doc_watcher.py --status
+
+# Reset state (treat all docs as new)
+uv run workshop-4/doc_watcher.py --reset
+
+# Legacy polling mode (if watchdog unavailable)
+uv run workshop-4/doc_watcher.py --watch --poll --interval 30
+```
 
 # WORKSHOP DESIGNERS
 
