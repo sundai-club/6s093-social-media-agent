@@ -1,9 +1,10 @@
 """
 Workshop 4: SQLite database module with RAG support.
-Extends workshop-3 database with:
-- embeddings table for vector storage
-- comment_replies table for tracking comment responses
-- processed_comments table to avoid duplicate processing
+
+Uses:
+- SQLite FTS5 for BM25 keyword search
+- Regular tables for vector storage (embeddings stored as JSON)
+- Comment tracking for conversation management
 """
 
 import json
@@ -12,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# Default database path - separate from workshop-3
+# Default database path
 DATABASE_PATH = Path(__file__).parent / "social_media.db"
 
 
@@ -26,7 +27,7 @@ def get_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """Initialize the database schema with all tables."""
+    """Initialize the database schema with all tables including FTS5."""
     cursor = conn.cursor()
 
     # ========================================
@@ -61,11 +62,11 @@ def init_db(conn: sqlite3.Connection) -> None:
     """)
 
     # ========================================
-    # NEW TABLES (for workshop-4 RAG system)
+    # RAG TABLES (workshop-4)
     # ========================================
 
-    # Vector embeddings for RAG
-    # Stores embeddings as JSON blobs for simplicity (no numpy dependency for storage)
+    # Vector embeddings table
+    # Stores embeddings as JSON blobs
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS embeddings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,28 +74,73 @@ def init_db(conn: sqlite3.Connection) -> None:
             source_id TEXT,                 -- filename or post/response ID
             content TEXT NOT NULL,          -- original text that was embedded
             embedding BLOB NOT NULL,        -- JSON array of floats
-            metadata TEXT,                  -- JSON metadata (section_title, file_mtime, etc.)
+            metadata TEXT,                  -- JSON metadata
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # ========================================
+    # FTS5 TABLE FOR BM25 KEYWORD SEARCH
+    # ========================================
+
+    # FTS5 virtual table for full-text search with BM25 ranking
+    # This provides efficient keyword search with proper BM25 scoring
+    # Note: rowid automatically maps to embeddings.id via content_rowid
+    cursor.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS embeddings_fts USING fts5(
+            content,
+            source_type,
+            source_id,
+            content='embeddings',
+            content_rowid='id'
+        )
+    """)
+
+    # Triggers to keep FTS5 table in sync with embeddings table
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS embeddings_ai AFTER INSERT ON embeddings BEGIN
+            INSERT INTO embeddings_fts(rowid, content, source_type, source_id)
+            VALUES (new.id, new.content, new.source_type, new.source_id);
+        END
+    """)
+
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS embeddings_ad AFTER DELETE ON embeddings BEGIN
+            INSERT INTO embeddings_fts(embeddings_fts, rowid, content, source_type, source_id)
+            VALUES ('delete', old.id, old.content, old.source_type, old.source_id);
+        END
+    """)
+
+    cursor.execute("""
+        CREATE TRIGGER IF NOT EXISTS embeddings_au AFTER UPDATE ON embeddings BEGIN
+            INSERT INTO embeddings_fts(embeddings_fts, rowid, content, source_type, source_id)
+            VALUES ('delete', old.id, old.content, old.source_type, old.source_id);
+            INSERT INTO embeddings_fts(rowid, content, source_type, source_id)
+            VALUES (new.id, new.content, new.source_type, new.source_id);
+        END
+    """)
+
+    # ========================================
+    # COMMENT TRACKING TABLES
+    # ========================================
 
     # Track comment replies we've generated
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS comment_replies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            parent_post_id TEXT NOT NULL,   -- Mastodon ID of our original post
-            comment_id TEXT UNIQUE NOT NULL, -- Mastodon ID of the comment we're replying to
-            comment_content TEXT NOT NULL,  -- The comment text
-            comment_author TEXT NOT NULL,   -- Who wrote the comment
-            reply_text TEXT NOT NULL,       -- Our generated reply
-            reply_url TEXT,                 -- URL of our posted reply
-            rag_context TEXT,               -- JSON of retrieved context (for debugging)
+            parent_post_id TEXT NOT NULL,
+            comment_id TEXT UNIQUE NOT NULL,
+            comment_content TEXT NOT NULL,
+            comment_author TEXT NOT NULL,
+            reply_text TEXT NOT NULL,
+            reply_url TEXT,
+            rag_context TEXT,
             posted BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    # Track which comments we've already processed (to avoid duplicates)
+    # Track which comments we've already processed
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS processed_comments (
             comment_id TEXT UNIQUE PRIMARY KEY,
@@ -106,7 +152,6 @@ def init_db(conn: sqlite3.Connection) -> None:
     # INDEXES
     # ========================================
 
-    # Existing indexes
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_posts_created_at ON posts(created_at)
     """)
@@ -116,8 +161,6 @@ def init_db(conn: sqlite3.Connection) -> None:
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_responses_original_post_id ON responses(original_post_id)
     """)
-
-    # New indexes for RAG tables
     cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_embeddings_source_type ON embeddings(source_type)
     """)
@@ -134,8 +177,123 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def rebuild_fts_index(conn: sqlite3.Connection) -> None:
+    """Rebuild FTS5 index from embeddings table (use after bulk operations)."""
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO embeddings_fts(embeddings_fts) VALUES('rebuild')")
+    conn.commit()
+
+
 # ========================================
-# POST FUNCTIONS (from workshop-3)
+# BM25 SEARCH FUNCTIONS
+# ========================================
+
+
+def bm25_search(
+    conn: sqlite3.Connection,
+    query: str,
+    source_type: Optional[str] = None,
+    limit: int = 100,
+) -> list[dict]:
+    """
+    Search using BM25 ranking via FTS5.
+
+    Returns results with BM25 scores (lower = better match in SQLite FTS5).
+    We'll normalize these scores in the hybrid search.
+
+    Args:
+        conn: Database connection
+        query: Search query text
+        source_type: Optional filter for source type
+        limit: Maximum results to return
+
+    Returns:
+        List of dicts with embedding_id, content, source_type, source_id, bm25_score
+    """
+    cursor = conn.cursor()
+
+    # Escape special FTS5 characters in query
+    # FTS5 uses " for phrases, * for prefix, - for NOT, OR/AND/NOT for operators
+    safe_query = query.replace('"', '""')
+
+    if source_type:
+        cursor.execute("""
+            SELECT
+                rowid as embedding_id,
+                content,
+                source_type,
+                source_id,
+                bm25(embeddings_fts) as bm25_score
+            FROM embeddings_fts
+            WHERE embeddings_fts MATCH ? AND source_type = ?
+            ORDER BY bm25_score
+            LIMIT ?
+        """, (safe_query, source_type, limit))
+    else:
+        cursor.execute("""
+            SELECT
+                rowid as embedding_id,
+                content,
+                source_type,
+                source_id,
+                bm25(embeddings_fts) as bm25_score
+            FROM embeddings_fts
+            WHERE embeddings_fts MATCH ?
+            ORDER BY bm25_score
+            LIMIT ?
+        """, (safe_query, limit))
+
+    results = []
+    for row in cursor.fetchall():
+        results.append({
+            "embedding_id": row[0],  # rowid maps to embeddings.id
+            "content": row[1],
+            "source_type": row[2],
+            "source_id": row[3],
+            "bm25_score": row[4],  # Note: negative, lower = better
+        })
+
+    return results
+
+
+def bm25_search_all(
+    conn: sqlite3.Connection,
+    query: str,
+    source_type: Optional[str] = None,
+) -> dict[int, float]:
+    """
+    Get BM25 scores for all documents matching the query.
+
+    Returns dict mapping embedding_id to raw BM25 score.
+    BM25 scores in SQLite FTS5 are negative (more negative = better match).
+    """
+    cursor = conn.cursor()
+
+    # Escape special characters
+    safe_query = query.replace('"', '""')
+
+    try:
+        if source_type:
+            cursor.execute("""
+                SELECT rowid, bm25(embeddings_fts) as score
+                FROM embeddings_fts
+                WHERE embeddings_fts MATCH ? AND source_type = ?
+            """, (safe_query, source_type))
+        else:
+            cursor.execute("""
+                SELECT rowid, bm25(embeddings_fts) as score
+                FROM embeddings_fts
+                WHERE embeddings_fts MATCH ?
+            """, (safe_query,))
+
+        return {row[0]: row[1] for row in cursor.fetchall()}
+    except sqlite3.OperationalError:
+        # Query might have no matches or invalid syntax
+        return {}
+
+
+# ========================================
+# POST FUNCTIONS
 # ========================================
 
 
@@ -174,7 +332,7 @@ def get_post_by_id(conn: sqlite3.Connection, post_id: int) -> Optional[dict]:
 
 
 # ========================================
-# RESPONSE FUNCTIONS (from workshop-3)
+# RESPONSE FUNCTIONS
 # ========================================
 
 
@@ -232,7 +390,7 @@ def get_response_by_id(conn: sqlite3.Connection, response_id: int) -> Optional[d
 
 
 # ========================================
-# EMBEDDING FUNCTIONS (new for workshop-4)
+# EMBEDDING FUNCTIONS
 # ========================================
 
 
@@ -246,17 +404,7 @@ def save_embedding(
 ) -> int:
     """
     Save an embedding to the database.
-
-    Args:
-        conn: Database connection
-        source_type: Type of source ('business_doc', 'post', 'response')
-        content: Original text that was embedded
-        embedding: Vector as list of floats
-        source_id: Identifier (filename for docs, ID for posts/responses)
-        metadata: Additional metadata as dict
-
-    Returns:
-        ID of inserted row
+    FTS5 index is updated automatically via trigger.
     """
     cursor = conn.cursor()
     cursor.execute(
@@ -268,7 +416,7 @@ def save_embedding(
             source_type,
             source_id,
             content,
-            json.dumps(embedding),  # Store as JSON blob
+            json.dumps(embedding),
             json.dumps(metadata) if metadata else None,
             datetime.now().isoformat(),
         ),
@@ -278,11 +426,7 @@ def save_embedding(
 
 
 def get_all_embeddings(conn: sqlite3.Connection, source_type: Optional[str] = None) -> list[dict]:
-    """
-    Get all embeddings, optionally filtered by source type.
-
-    Returns embeddings with parsed JSON fields.
-    """
+    """Get all embeddings, optionally filtered by source type."""
     cursor = conn.cursor()
 
     if source_type:
@@ -296,12 +440,25 @@ def get_all_embeddings(conn: sqlite3.Connection, source_type: Optional[str] = No
     results = []
     for row in cursor.fetchall():
         item = dict(row)
-        # Parse JSON fields
         item["embedding"] = json.loads(item["embedding"])
         item["metadata"] = json.loads(item["metadata"]) if item["metadata"] else {}
         results.append(item)
 
     return results
+
+
+def get_embedding_by_id(conn: sqlite3.Connection, embedding_id: int) -> Optional[dict]:
+    """Get a specific embedding by ID."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM embeddings WHERE id = ?", (embedding_id,))
+    row = cursor.fetchone()
+    if not row:
+        return None
+
+    item = dict(row)
+    item["embedding"] = json.loads(item["embedding"])
+    item["metadata"] = json.loads(item["metadata"]) if item["metadata"] else {}
+    return item
 
 
 def get_embedding_by_source_id(
@@ -326,11 +483,7 @@ def get_embedding_by_source_id(
 def delete_embeddings_by_source(
     conn: sqlite3.Connection, source_type: str, source_id: Optional[str] = None
 ) -> int:
-    """
-    Delete embeddings by source type and optionally source ID.
-
-    Returns number of rows deleted.
-    """
+    """Delete embeddings by source type and optionally source ID."""
     cursor = conn.cursor()
 
     if source_id:
@@ -364,7 +517,7 @@ def count_embeddings(conn: sqlite3.Connection, source_type: Optional[str] = None
 
 
 # ========================================
-# COMMENT REPLY FUNCTIONS (new for workshop-4)
+# COMMENT REPLY FUNCTIONS
 # ========================================
 
 
@@ -454,7 +607,7 @@ def update_comment_reply_posted(
 
 
 # ========================================
-# PROCESSED COMMENTS FUNCTIONS (new for workshop-4)
+# PROCESSED COMMENTS FUNCTIONS
 # ========================================
 
 
@@ -489,7 +642,7 @@ def get_processed_comments_count(conn: sqlite3.Connection) -> int:
 
 
 # ========================================
-# STATS FUNCTION (extended)
+# STATS FUNCTION
 # ========================================
 
 

@@ -87,61 +87,120 @@ See `workshop-3/prompts.md` for full details. Key prompts:
 
 ## Workshop 4 overview:
 
-Workshop 4 adds **intelligent document monitoring** with automatic social media posting. It watches your business docs for changes, uses semantic embeddings for context-aware post generation, and includes a significance threshold to avoid posting on minor edits.
+Workshop 4 adds **RAG-powered document monitoring** with a unified FastAPI backend. All functionality is exposed via REST endpoints that a frontend can control.
 
-### Doc Watcher
+### Features
+- **Document Watcher**: Monitors `business-docs/` for changes, auto-generates posts
+- **RAG Search**: Hybrid BM25 + semantic search over all content
+- **Comment Listener**: Auto-replies to Mastodon comments using RAG context
+- **Local Embeddings**: Uses MiniLM-L6-v2 via ONNX (no API calls needed)
+
+### Quick Start (Local)
 
 ```bash
-# Check for changes (dry run)
-uv run workshop-4/doc_watcher.py
-
-# Check and post about changes
-uv run workshop-4/doc_watcher.py --post
-
-# Event-driven watch mode (recommended)
-uv run workshop-4/doc_watcher.py --watch
-
-# Watch and auto-post on changes
-uv run workshop-4/doc_watcher.py --watch --post
+cd workshop-4
+uv run uvicorn api:app --reload
 ```
 
-Monitors the `business-docs/` folder for file changes. When significant changes are detected:
-1. Computes diffs to understand what changed
-2. Updates semantic embeddings for changed documents
-3. Generates and posts about the changes to Mastodon
+Visit **http://localhost:8000/docs** for Swagger UI with all endpoints.
 
-### Significance Threshold
+### API Endpoints
 
-By default, only changes exceeding **100 words** or **20 lines** trigger posts. Minor edits (typo fixes, formatting) are automatically skipped.
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/stats` | GET | Posts, responses, embeddings, comments stats |
+| `/posts` | GET | List all generated posts |
+| `/responses` | GET | List all keyword responses |
+| `/embeddings/init` | POST | Initialize all embeddings (business docs, posts, responses) |
+| `/embeddings/refresh` | POST | Refresh only changed embeddings |
+| `/embeddings/stats` | GET | Embedding counts by type |
+| `/search` | POST | Hybrid RAG search with configurable weights |
+| `/watcher/start` | POST | Start document watcher (background) |
+| `/watcher/stop` | POST | Stop document watcher |
+| `/watcher/status` | GET | Watcher state and stats |
+| `/watcher/check` | POST | One-time check for doc changes |
+| `/watcher/reset` | POST | Reset document tracking state |
+| `/comments/start` | POST | Start comment listener (background) |
+| `/comments/stop` | POST | Stop comment listener |
+| `/comments/status` | GET | Comment listener state |
+| `/comments/replies` | GET | All generated comment replies |
+
+### Example: RAG Search
 
 ```bash
-# Lower threshold to trigger on smaller changes
-uv run workshop-4/doc_watcher.py --watch --min-words 50
-
-# Higher threshold for major changes only
-uv run workshop-4/doc_watcher.py --watch --min-words 200 --min-lines 40
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "AI consulting services", "top_k": 5}'
 ```
 
-### Embeddings System
+### GCP VM Deployment
+
+1. **Create systemd service** on your VM:
 
 ```bash
-# Generate embeddings for business docs (runs automatically with doc_watcher)
-uv run workshop-4/embeddings.py
+sudo nano /etc/systemd/system/social-media-api.service
 ```
 
-Uses OpenAI-compatible embeddings to create semantic vectors of your documentation, enabling context-aware post generation.
+```ini
+[Unit]
+Description=Social Media Agent API
+After=network.target
 
-### Other Commands
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/home/your-username/6s093-social-media-agent/workshop-4
+Environment="PATH=/home/your-username/6s093-social-media-agent/.venv/bin"
+EnvironmentFile=/home/your-username/6s093-social-media-agent/.env
+ExecStart=/home/your-username/6s093-social-media-agent/.venv/bin/uvicorn api:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+2. **Enable and start**:
 
 ```bash
-# Show current document tracking state
-uv run workshop-4/doc_watcher.py --status
+sudo systemctl daemon-reload
+sudo systemctl enable social-media-api
+sudo systemctl start social-media-api
+sudo systemctl status social-media-api
+```
 
-# Reset state (treat all docs as new)
-uv run workshop-4/doc_watcher.py --reset
+### CLI Commands (Alternative)
 
-# Legacy polling mode (if watchdog unavailable)
-uv run workshop-4/doc_watcher.py --watch --poll --interval 30
+The individual modules can still be run directly:
+
+```bash
+cd workshop-4
+
+# Doc watcher (event-driven)
+uv run python doc_watcher.py --watch --post
+
+# Initialize embeddings
+uv run python embeddings.py --init
+
+# RAG search test
+uv run python rag.py "AI consulting"
+
+# Comment listener
+uv run python comment_listener.py --post
+```
+
+### Architecture
+
+```
+workshop-4/
+├── api.py              # FastAPI backend (main entry point)
+├── database.py         # SQLite with FTS5 for BM25 search
+├── embeddings.py       # Local MiniLM-L6-v2 via fastembed
+├── rag.py              # Hybrid search (BM25 + cosine similarity)
+├── doc_watcher.py      # File monitoring with watchdog
+├── comment_listener.py # Mastodon comment auto-replies
+└── social_media.db     # SQLite database
 ```
 
 # WORKSHOP DESIGNERS

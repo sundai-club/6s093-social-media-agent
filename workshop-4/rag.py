@@ -3,128 +3,113 @@ Workshop 4: RAG (Retrieval-Augmented Generation) system with hybrid search.
 
 HYBRID SEARCH STRATEGY:
 =======================
-Combines keyword matching and semantic similarity for better retrieval.
+Combines BM25 keyword matching (via SQLite FTS5) and semantic similarity (cosine).
 
-Formula: final_score = (keyword_weight * keyword_score) + (semantic_weight * cosine_similarity)
+Formula: final_score = 0.5 * normalized_bm25 + 0.5 * normalized_cosine
 
-Default weights: 0.3 keyword, 0.7 semantic
+Score normalization (both to 0-1 range):
+- BM25: SQLite FTS5 returns negative scores (more negative = better match)
+        Normalized using: 1 - (score - min_score) / (max_score - min_score)
+- Cosine: Already in [-1, 1] range, normalized to [0, 1] using: (score + 1) / 2
 
-Why hybrid search?
-- Keyword matching catches exact terms (company names, product names, acronyms)
+Why 50-50 hybrid search?
+- BM25 catches exact terms (company names, product names, acronyms)
 - Semantic search catches related concepts even with different words
-- Combined approach handles both "Emanon" (exact) and "AI consulting" (semantic)
-
-The system returns top 10 results mixed from all source types (business_doc, post, response).
+- Equal weighting provides balanced results for both exact and semantic matches
 """
 
 import math
-import re
-from collections import Counter
+import numpy as np
 from typing import Optional
 
-from database import get_db, get_all_embeddings
+from database import get_db, get_all_embeddings, bm25_search_all, get_embedding_by_id
 
 
 def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     """
-    Compute cosine similarity between two vectors.
+    Compute cosine similarity between two vectors using numpy for efficiency.
 
-    Cosine similarity = (A · B) / (||A|| * ||B||)
-
-    Returns value between -1 and 1, where:
-    - 1 = identical direction (most similar)
-    - 0 = orthogonal (unrelated)
-    - -1 = opposite direction (most dissimilar)
-
-    For normalized embeddings (which OpenAI provides), this simplifies to dot product.
+    Returns value between -1 and 1.
     """
-    if len(vec1) != len(vec2):
-        raise ValueError(f"Vector length mismatch: {len(vec1)} vs {len(vec2)}")
+    v1 = np.array(vec1)
+    v2 = np.array(vec2)
 
-    # Dot product
-    dot_product = sum(a * b for a, b in zip(vec1, vec2))
-
-    # Magnitudes
-    magnitude1 = math.sqrt(sum(a * a for a in vec1))
-    magnitude2 = math.sqrt(sum(b * b for b in vec2))
+    dot_product = np.dot(v1, v2)
+    magnitude1 = np.linalg.norm(v1)
+    magnitude2 = np.linalg.norm(v2)
 
     if magnitude1 == 0 or magnitude2 == 0:
         return 0.0
 
-    return dot_product / (magnitude1 * magnitude2)
+    return float(dot_product / (magnitude1 * magnitude2))
 
 
-def tokenize(text: str) -> list[str]:
+def normalize_bm25_scores(bm25_scores: dict[int, float]) -> dict[int, float]:
     """
-    Simple tokenization for keyword matching.
+    Normalize BM25 scores to 0-1 range.
 
-    Converts to lowercase, removes punctuation, splits on whitespace.
+    SQLite FTS5 BM25 scores are negative (more negative = better match).
+    We normalize so that the best match gets score 1.0 and worst gets 0.0.
+
+    If only one result, it gets score 1.0.
+    If no results, returns empty dict.
     """
-    # Lowercase and remove non-alphanumeric (keep spaces)
-    text = text.lower()
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    # Split and filter empty
-    tokens = [t for t in text.split() if t]
-    return tokens
+    if not bm25_scores:
+        return {}
+
+    scores = list(bm25_scores.values())
+    min_score = min(scores)  # Most negative = best match
+    max_score = max(scores)  # Least negative = worst match
+
+    if min_score == max_score:
+        # All scores are the same, give them all 1.0
+        return {id: 1.0 for id in bm25_scores}
+
+    # Normalize: best (most negative) -> 1.0, worst (least negative) -> 0.0
+    normalized = {}
+    score_range = max_score - min_score
+    for id, score in bm25_scores.items():
+        # Invert so that better BM25 (more negative) gets higher normalized score
+        normalized[id] = (max_score - score) / score_range
+
+    return normalized
 
 
-def compute_keyword_score(query_tokens: list[str], doc_tokens: list[str]) -> float:
+def normalize_cosine_score(score: float) -> float:
     """
-    Compute keyword overlap score using TF-IDF-inspired approach.
+    Normalize cosine similarity from [-1, 1] to [0, 1].
 
-    SCORING APPROACH:
-    ================
-    1. Count how many query tokens appear in the document
-    2. Weight by inverse document frequency (rarer terms count more)
-    3. Normalize by query length
-
-    This is a simplified TF-IDF that works well for short queries.
+    For text embeddings, scores are typically in [0, 1] already,
+    but this handles edge cases.
     """
-    if not query_tokens or not doc_tokens:
-        return 0.0
-
-    # Convert to sets for fast lookup
-    query_set = set(query_tokens)
-    doc_counter = Counter(doc_tokens)
-
-    # Count matches with term frequency weighting
-    matches = 0
-    for token in query_set:
-        if token in doc_counter:
-            # Log-scaled term frequency (diminishing returns for repeated terms)
-            tf = 1 + math.log(doc_counter[token])
-            matches += tf
-
-    # Normalize by query length
-    return matches / len(query_set)
+    return (score + 1) / 2
 
 
 def hybrid_search(
     query: str,
     query_embedding: list[float],
-    keyword_weight: float = 0.3,
-    semantic_weight: float = 0.7,
+    keyword_weight: float = 0.5,
+    semantic_weight: float = 0.5,
     top_k: int = 10,
     source_types: Optional[list[str]] = None,
 ) -> list[dict]:
     """
-    Perform hybrid search combining keyword and semantic similarity.
+    Perform hybrid search combining BM25 keyword matching and semantic similarity.
 
     SEARCH PROCESS:
     ===============
-    1. Load all embeddings from database
-    2. For each embedding:
-       a. Compute keyword score (token overlap)
-       b. Compute semantic score (cosine similarity)
-       c. Combine with weights
-    3. Sort by combined score
-    4. Return top K results
+    1. Get BM25 scores from SQLite FTS5 for all matching documents
+    2. Normalize BM25 scores to 0-1 range
+    3. Load all embeddings and compute cosine similarity
+    4. Normalize cosine scores to 0-1 range
+    5. Combine with weights: final = keyword_weight * bm25 + semantic_weight * cosine
+    6. Sort by combined score and return top K
 
     Args:
         query: User's search query (text)
         query_embedding: Pre-computed embedding of the query
-        keyword_weight: Weight for keyword matching (default 0.3)
-        semantic_weight: Weight for semantic similarity (default 0.7)
+        keyword_weight: Weight for BM25 keyword matching (default 0.5)
+        semantic_weight: Weight for semantic similarity (default 0.5)
         top_k: Number of results to return (default 10)
         source_types: Filter to specific types (None = all)
 
@@ -133,7 +118,13 @@ def hybrid_search(
     """
     db = get_db()
 
-    # Get all embeddings (optionally filtered)
+    # Step 1: Get BM25 scores from FTS5
+    bm25_scores_raw = bm25_search_all(db, query, source_types[0] if source_types and len(source_types) == 1 else None)
+
+    # Step 2: Normalize BM25 scores to 0-1
+    bm25_scores_normalized = normalize_bm25_scores(bm25_scores_raw)
+
+    # Step 3: Get all embeddings
     all_embeddings = get_all_embeddings(db)
 
     if source_types:
@@ -142,37 +133,33 @@ def hybrid_search(
     if not all_embeddings:
         return []
 
-    # Tokenize query for keyword matching
-    query_tokens = tokenize(query)
-
-    # Score each document
+    # Step 4 & 5: Compute cosine similarities and combine scores
     scored_results = []
+
     for emb in all_embeddings:
-        # Tokenize document content
-        doc_tokens = tokenize(emb["content"])
+        emb_id = emb["id"]
 
-        # Compute keyword score (0-1 range, roughly)
-        keyword_score = compute_keyword_score(query_tokens, doc_tokens)
+        # Get normalized BM25 score (0 if document didn't match query)
+        bm25_score = bm25_scores_normalized.get(emb_id, 0.0)
 
-        # Compute semantic score (cosine similarity, -1 to 1, but usually 0-1 for related content)
-        semantic_score = cosine_similarity(query_embedding, emb["embedding"])
-        # Normalize to 0-1 range (shift from [-1,1] to [0,1])
-        semantic_score = (semantic_score + 1) / 2
+        # Compute and normalize cosine similarity
+        cosine_raw = cosine_similarity(query_embedding, emb["embedding"])
+        cosine_score = normalize_cosine_score(cosine_raw)
 
-        # Combine scores
-        final_score = (keyword_weight * keyword_score) + (semantic_weight * semantic_score)
+        # Combine scores with weights
+        final_score = (keyword_weight * bm25_score) + (semantic_weight * cosine_score)
 
         scored_results.append({
             "content": emb["content"],
             "source_type": emb["source_type"],
             "source_id": emb["source_id"],
             "metadata": emb["metadata"],
-            "keyword_score": keyword_score,
-            "semantic_score": semantic_score,
+            "bm25_score": bm25_score,  # Normalized 0-1
+            "cosine_score": cosine_score,  # Normalized 0-1
             "final_score": final_score,
         })
 
-    # Sort by final score (descending)
+    # Step 6: Sort by final score (descending)
     scored_results.sort(key=lambda x: x["final_score"], reverse=True)
 
     # Return top K
@@ -183,15 +170,11 @@ def format_context_for_prompt(results: list[dict], max_tokens: int = 2000) -> st
     """
     Format search results into a context string for the LLM prompt.
 
-    CONTEXT FORMATTING:
-    ===================
     Each result is formatted as:
     ```
-    [N. source_type] (score: X.XX)
+    [N. source_type] (score: X.XX, bm25: X.XX, cosine: X.XX)
     Content snippet...
     ```
-
-    We truncate content to stay within token budget (~4 chars per token estimate).
     """
     if not results:
         return "No relevant context found."
@@ -203,16 +186,16 @@ def format_context_for_prompt(results: list[dict], max_tokens: int = 2000) -> st
     chars_used = 0
 
     for i, result in enumerate(results, 1):
-        # Format header
-        header = f"[{i}. {result['source_type']}] (score: {result['final_score']:.2f})"
+        # Format header with all scores for debugging
+        header = (f"[{i}. {result['source_type']}] "
+                  f"(score: {result['final_score']:.2f}, "
+                  f"bm25: {result['bm25_score']:.2f}, "
+                  f"cosine: {result['cosine_score']:.2f})")
 
-        # Truncate content if needed
         content = result["content"]
-        # Reserve space for header and newlines
         available_chars = char_budget - chars_used - len(header) - 10
 
         if available_chars <= 100:
-            # Stop if we're running low on budget
             break
 
         if len(content) > available_chars:
@@ -229,8 +212,8 @@ def retrieve_context(
     query: str,
     query_embedding: list[float],
     top_k: int = 10,
-    keyword_weight: float = 0.3,
-    semantic_weight: float = 0.7,
+    keyword_weight: float = 0.5,
+    semantic_weight: float = 0.5,
 ) -> tuple[str, list[dict]]:
     """
     High-level function to retrieve and format context for RAG.
@@ -239,8 +222,8 @@ def retrieve_context(
         query: The user's query/comment
         query_embedding: Pre-computed embedding of the query
         top_k: Number of results to retrieve
-        keyword_weight: Weight for keyword matching
-        semantic_weight: Weight for semantic similarity
+        keyword_weight: Weight for BM25 matching (default 0.5)
+        semantic_weight: Weight for semantic similarity (default 0.5)
 
     Returns:
         Tuple of (formatted_context_string, raw_results_list)
@@ -263,19 +246,20 @@ def main():
     import argparse
     from embeddings import generate_embedding
 
-    parser = argparse.ArgumentParser(description="Test RAG retrieval")
+    parser = argparse.ArgumentParser(description="Test RAG retrieval with hybrid search")
     parser.add_argument("query", help="Search query")
     parser.add_argument("--top-k", type=int, default=10, help="Number of results")
-    parser.add_argument("--keyword-weight", type=float, default=0.3)
-    parser.add_argument("--semantic-weight", type=float, default=0.7)
+    parser.add_argument("--keyword-weight", type=float, default=0.5, help="BM25 weight (default 0.5)")
+    parser.add_argument("--semantic-weight", type=float, default=0.5, help="Cosine weight (default 0.5)")
 
     args = parser.parse_args()
 
     print(f"Query: {args.query}")
+    print(f"Weights: BM25={args.keyword_weight}, Cosine={args.semantic_weight}")
     print("=" * 60)
 
     # Generate embedding for query
-    print("Generating query embedding...")
+    print("Generating query embedding (local MiniLM-L6-v2)...")
     query_embedding = generate_embedding(args.query)
 
     # Perform hybrid search
@@ -292,7 +276,7 @@ def main():
 
     for i, r in enumerate(results, 1):
         print(f"{i}. [{r['source_type']}] score={r['final_score']:.3f} "
-              f"(kw={r['keyword_score']:.3f}, sem={r['semantic_score']:.3f})")
+              f"(bm25={r['bm25_score']:.3f}, cosine={r['cosine_score']:.3f})")
         print(f"   {r['content'][:100]}...")
         print()
 

@@ -74,7 +74,7 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 
 from database import get_db, save_post
-from embeddings import embed_business_docs, generate_embedding
+from embeddings import embed_business_docs
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 

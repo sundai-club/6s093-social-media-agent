@@ -59,11 +59,14 @@ delete that too and find any other items to clean up
 9.
 We want to create a RAG system on the embeddings of the documentation and the posts; store the vector embeddings using sqlite-vec with the sqllite database. Chunk the documentation. 
 
-10. 
-For retrieval use a hybrid search strategy with both keyword and cosine similarity. Include comments about memory/context management, use the top 10 results are used in context.
+10.
+For retrieval use a hybrid search strategy with both keyword and cosine similarity (50-50). Use bm25 with FTS5 sqllite plugin. Include comments about memory/context management, use the top 10 results are used in context.
 
 11.
 Create a comment listener that can look for new comments to our posts and respond to the comments.  System prompt should include the style and retrieved context and the comment. 
 
 12.
 Create an autopost feature that uses a listener that looks for when there are significant diffs in the business-doc folder and add them to embeddings and make a post about the new content
+
+13.
+Create api.py endpoints for toggling listeners
