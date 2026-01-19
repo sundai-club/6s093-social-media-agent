@@ -32,6 +32,8 @@ Same as above, you can remove the --post flag if you do not want to publish the 
 
 See `workshop-2-hitloop/` folder for Telegram-based human approval workflow.
 
+Use chatIDrobot to get chatID
+
 ## Workshop 3 overview:
 
 Workshop 3 focuses on **backend and cloud deployment** using Google Cloud Platform (GCP) and Claude Code. It builds on Workshop 1 by adding SQLite database tracking and a FastAPI server.
@@ -82,6 +84,124 @@ See `workshop-3/prompts.md` for full details. Key prompts:
 2. `can we deploy a e2 vm to that project? Please turn on any necessary apis`
 3. `we have this virtual machine in gcloud. you have the gcloud cli to ssh into that machine. We need to install sqlite`
 4. `let's also deploy a fastapi server that uses that database and make sure the fast api is setup properly as a service on linux`
+
+## Workshop 4 overview:
+
+Workshop 4 adds **RAG-powered document monitoring** with a unified FastAPI backend. All functionality is exposed via REST endpoints that a frontend can control.
+
+### Features
+- **Document Watcher**: Monitors `business-docs/` for changes, auto-generates posts
+- **RAG Search**: Hybrid BM25 + semantic search over all content
+- **Comment Listener**: Auto-replies to Mastodon comments using RAG context
+- **Local Embeddings**: Uses MiniLM-L6-v2 via ONNX (no API calls needed)
+
+### Quick Start (Local)
+
+```bash
+cd workshop-4
+uv run uvicorn api:app --reload
+```
+
+Visit **http://localhost:8000/docs** for Swagger UI with all endpoints.
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/stats` | GET | Posts, responses, embeddings, comments stats |
+| `/posts` | GET | List all generated posts |
+| `/responses` | GET | List all keyword responses |
+| `/embeddings/init` | POST | Initialize all embeddings (business docs, posts, responses) |
+| `/embeddings/refresh` | POST | Refresh only changed embeddings |
+| `/embeddings/stats` | GET | Embedding counts by type |
+| `/search` | POST | Hybrid RAG search with configurable weights |
+| `/watcher/start` | POST | Start document watcher (background) |
+| `/watcher/stop` | POST | Stop document watcher |
+| `/watcher/status` | GET | Watcher state and stats |
+| `/watcher/check` | POST | One-time check for doc changes |
+| `/watcher/reset` | POST | Reset document tracking state |
+| `/comments/start` | POST | Start comment listener (background) |
+| `/comments/stop` | POST | Stop comment listener |
+| `/comments/status` | GET | Comment listener state |
+| `/comments/replies` | GET | All generated comment replies |
+
+### Example: RAG Search
+
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "AI consulting services", "top_k": 5}'
+```
+
+### GCP VM Deployment
+
+1. **Create systemd service** on your VM:
+
+```bash
+sudo nano /etc/systemd/system/social-media-api.service
+```
+
+```ini
+[Unit]
+Description=Social Media Agent API
+After=network.target
+
+[Service]
+Type=simple
+User=your-username
+WorkingDirectory=/home/your-username/6s093-social-media-agent/workshop-4
+Environment="PATH=/home/your-username/6s093-social-media-agent/.venv/bin"
+EnvironmentFile=/home/your-username/6s093-social-media-agent/.env
+ExecStart=/home/your-username/6s093-social-media-agent/.venv/bin/uvicorn api:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+2. **Enable and start**:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable social-media-api
+sudo systemctl start social-media-api
+sudo systemctl status social-media-api
+```
+
+### CLI Commands (Alternative)
+
+The individual modules can still be run directly:
+
+```bash
+cd workshop-4
+
+# Doc watcher (event-driven)
+uv run python doc_watcher.py --watch --post
+
+# Initialize embeddings
+uv run python embeddings.py --init
+
+# RAG search test
+uv run python rag.py "AI consulting"
+
+# Comment listener
+uv run python comment_listener.py --post
+```
+
+### Architecture
+
+```
+workshop-4/
+├── api.py              # FastAPI backend (main entry point)
+├── database.py         # SQLite with FTS5 for BM25 search
+├── embeddings.py       # Local MiniLM-L6-v2 via fastembed
+├── rag.py              # Hybrid search (BM25 + cosine similarity)
+├── doc_watcher.py      # File monitoring with watchdog
+├── comment_listener.py # Mastodon comment auto-replies
+└── social_media.db     # SQLite database
+```
 
 # WORKSHOP DESIGNERS
 
