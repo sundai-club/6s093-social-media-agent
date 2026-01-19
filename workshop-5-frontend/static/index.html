@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emanon Social Media Agent - Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div x-data="dashboard()" x-init="init()" x-cloak class="container mx-auto px-4 py-8 max-w-7xl">
+
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 flex items-center gap-3">
+                <span class="text-4xl">🤖</span>
+                Emanon Social Media Agent
+            </h1>
+            <p class="text-gray-600 mt-2">Admin Dashboard - Workshop 5</p>
+        </header>
+
+        <!-- Stats Overview Cards -->
+        <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <!-- Posts Card -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 uppercase tracking-wide">Posts</p>
+                        <p class="text-3xl font-bold text-gray-800" x-text="stats.total_posts || 0"></p>
+                    </div>
+                    <div class="text-4xl">📝</div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">
+                    <span class="text-green-600 font-medium" x-text="stats.posted_posts || 0"></span> posted
+                </p>
+            </div>
+
+            <!-- Responses Card -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 uppercase tracking-wide">Responses</p>
+                        <p class="text-3xl font-bold text-gray-800" x-text="stats.total_responses || 0"></p>
+                    </div>
+                    <div class="text-4xl">💬</div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">
+                    <span class="text-green-600 font-medium" x-text="stats.posted_responses || 0"></span> posted
+                </p>
+            </div>
+
+            <!-- Embeddings Card -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 uppercase tracking-wide">Embeddings</p>
+                        <p class="text-3xl font-bold text-gray-800" x-text="stats.total_embeddings || 0"></p>
+                    </div>
+                    <div class="text-4xl">🧠</div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">
+                    <span class="text-blue-600 font-medium" x-text="stats.business_doc_embeddings || 0"></span> docs
+                </p>
+            </div>
+
+            <!-- Comment Replies Card -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-gray-500 uppercase tracking-wide">Replies</p>
+                        <p class="text-3xl font-bold text-gray-800" x-text="stats.total_comment_replies || 0"></p>
+                    </div>
+                    <div class="text-4xl">↩️</div>
+                </div>
+                <p class="text-sm text-gray-500 mt-2">
+                    <span class="text-green-600 font-medium" x-text="stats.posted_comment_replies || 0"></span> posted
+                </p>
+            </div>
+        </section>
+
+        <!-- Service Controls -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Doc Watcher -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <span>📄</span> Doc Watcher
+                    </h2>
+                    <div class="flex items-center gap-2">
+                        <span
+                            class="w-3 h-3 rounded-full"
+                            :class="watcher.running ? 'bg-green-500' : 'bg-gray-300'"
+                        ></span>
+                        <span class="text-sm" :class="watcher.running ? 'text-green-600' : 'text-gray-500'" x-text="watcher.running ? 'Running' : 'Stopped'"></span>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- Control Buttons -->
+                    <div class="flex gap-2">
+                        <button
+                            @click="startWatcher()"
+                            :disabled="watcher.running || loading"
+                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                            Start
+                        </button>
+                        <button
+                            @click="stopWatcher()"
+                            :disabled="!watcher.running || loading"
+                            class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                            Stop
+                        </button>
+                    </div>
+
+                    <!-- Config Options -->
+                    <div class="border-t pt-4 space-y-2">
+                        <label class="flex items-center gap-2 text-sm text-gray-600">
+                            <input type="checkbox" x-model="watcherConfig.should_post" class="rounded">
+                            Post to Mastodon
+                        </label>
+                        <label class="flex items-center gap-2 text-sm text-gray-600">
+                            <input type="checkbox" x-model="watcherConfig.approve" class="rounded">
+                            Telegram approval
+                        </label>
+                        <div class="flex items-center gap-2 text-sm text-gray-600">
+                            <span>Min words:</span>
+                            <input type="number" x-model.number="watcherConfig.min_words" class="w-20 px-2 py-1 border rounded">
+                        </div>
+                        <div class="flex items-center gap-2 text-sm text-gray-600">
+                            <span>Min lines:</span>
+                            <input type="number" x-model.number="watcherConfig.min_lines" class="w-20 px-2 py-1 border rounded">
+                        </div>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="text-xs text-gray-500 border-t pt-3">
+                        <p>Docs tracked: <span class="font-medium" x-text="watcher.docs_tracked || 0"></span></p>
+                        <p>Current docs: <span class="font-medium" x-text="watcher.current_docs || 0"></span></p>
+                        <p x-show="watcher.stats?.started_at">Started: <span class="font-medium" x-text="watcher.stats?.started_at"></span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comment Listener -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                        <span>💬</span> Comment Listener
+                    </h2>
+                    <div class="flex items-center gap-2">
+                        <span
+                            class="w-3 h-3 rounded-full"
+                            :class="comments.running ? 'bg-green-500' : 'bg-gray-300'"
+                        ></span>
+                        <span class="text-sm" :class="comments.running ? 'text-green-600' : 'text-gray-500'" x-text="comments.running ? 'Running' : 'Stopped'"></span>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- Control Buttons -->
+                    <div class="flex gap-2">
+                        <button
+                            @click="startComments()"
+                            :disabled="comments.running || loading"
+                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                            Start
+                        </button>
+                        <button
+                            @click="stopComments()"
+                            :disabled="!comments.running || loading"
+                            class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                            Stop
+                        </button>
+                    </div>
+
+                    <!-- Config Options -->
+                    <div class="border-t pt-4 space-y-2">
+                        <label class="flex items-center gap-2 text-sm text-gray-600">
+                            <input type="checkbox" x-model="commentsConfig.should_post" class="rounded">
+                            Post replies
+                        </label>
+                        <div class="flex items-center gap-2 text-sm text-gray-600">
+                            <span>Poll interval:</span>
+                            <input type="number" x-model.number="commentsConfig.poll_interval" class="w-20 px-2 py-1 border rounded">
+                            <span>seconds</span>
+                        </div>
+                    </div>
+
+                    <!-- Stats -->
+                    <div class="text-xs text-gray-500 border-t pt-3">
+                        <p>Comments processed: <span class="font-medium" x-text="comments.stats?.comments_processed || 0"></span></p>
+                        <p>Replies generated: <span class="font-medium" x-text="comments.stats?.replies_generated || 0"></span></p>
+                        <p x-show="comments.stats?.started_at">Started: <span class="font-medium" x-text="comments.stats?.started_at"></span></p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="bg-white rounded-lg shadow p-6 mb-8">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <span>🔧</span> Quick Actions
+            </h2>
+            <div class="flex flex-wrap gap-3">
+                <button
+                    @click="initEmbeddings()"
+                    :disabled="loading"
+                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition flex items-center gap-2"
+                >
+                    <span x-show="!loading">Init Embeddings</span>
+                    <span x-show="loading && loadingAction === 'init'">Initializing...</span>
+                </button>
+                <button
+                    @click="refreshEmbeddings()"
+                    :disabled="loading"
+                    class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition"
+                >
+                    <span x-show="!loading || loadingAction !== 'refresh'">Refresh Embeddings</span>
+                    <span x-show="loading && loadingAction === 'refresh'">Refreshing...</span>
+                </button>
+                <button
+                    @click="checkDocs()"
+                    :disabled="loading"
+                    class="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 transition"
+                >
+                    Check Docs
+                </button>
+                <button
+                    @click="resetDocs()"
+                    :disabled="loading"
+                    class="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700 disabled:opacity-50 transition"
+                >
+                    Reset Doc State
+                </button>
+            </div>
+
+            <!-- Action Result -->
+            <div x-show="actionResult" class="mt-4 p-3 rounded" :class="actionResult?.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'">
+                <p x-text="actionResult?.message"></p>
+            </div>
+        </section>
+
+        <!-- Activity Feed -->
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Recent Posts -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <span>📋</span> Recent Posts
+                </h2>
+                <div class="space-y-3 max-h-96 overflow-y-auto">
+                    <template x-for="post in posts.slice(0, 10)" :key="post.id">
+                        <div class="border-b pb-3 last:border-0">
+                            <p class="text-sm text-gray-800 line-clamp-2" x-text="post.content"></p>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span
+                                    class="text-xs px-2 py-0.5 rounded"
+                                    :class="post.posted ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                                    x-text="post.posted ? 'Posted' : 'Draft'"
+                                ></span>
+                                <span class="text-xs text-gray-400" x-text="formatDate(post.created_at)"></span>
+                            </div>
+                        </div>
+                    </template>
+                    <p x-show="posts.length === 0" class="text-gray-500 text-sm">No posts yet</p>
+                </div>
+            </div>
+
+            <!-- Recent Responses -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <span>💬</span> Recent Responses
+                </h2>
+                <div class="space-y-3 max-h-96 overflow-y-auto">
+                    <template x-for="resp in responses.slice(0, 10)" :key="resp.id">
+                        <div class="border-b pb-3 last:border-0">
+                            <p class="text-xs text-gray-500 mb-1">To: @<span x-text="resp.original_post_author"></span></p>
+                            <p class="text-sm text-gray-800 line-clamp-2" x-text="resp.response_text"></p>
+                            <div class="flex items-center gap-2 mt-1">
+                                <span
+                                    class="text-xs px-2 py-0.5 rounded"
+                                    :class="resp.posted ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                                    x-text="resp.posted ? 'Posted' : 'Draft'"
+                                ></span>
+                                <span class="text-xs text-gray-400" x-text="formatDate(resp.created_at)"></span>
+                            </div>
+                        </div>
+                    </template>
+                    <p x-show="responses.length === 0" class="text-gray-500 text-sm">No responses yet</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Comment Replies Section -->
+        <section class="mt-6 bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <span>↩️</span> Recent Comment Replies
+            </h2>
+            <div class="space-y-3 max-h-96 overflow-y-auto">
+                <template x-for="reply in commentReplies.slice(0, 10)" :key="reply.id">
+                    <div class="border-b pb-3 last:border-0">
+                        <p class="text-xs text-gray-500 mb-1">From: @<span x-text="reply.comment_author"></span></p>
+                        <p class="text-xs text-gray-600 italic mb-1">"<span x-text="reply.comment_content.slice(0, 100)"></span>..."</p>
+                        <p class="text-sm text-gray-800 line-clamp-2" x-text="reply.reply_text"></p>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span
+                                class="text-xs px-2 py-0.5 rounded"
+                                :class="reply.posted ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'"
+                                x-text="reply.posted ? 'Posted' : 'Draft'"
+                            ></span>
+                            <span class="text-xs text-gray-400" x-text="formatDate(reply.created_at)"></span>
+                        </div>
+                    </div>
+                </template>
+                <p x-show="commentReplies.length === 0" class="text-gray-500 text-sm">No comment replies yet</p>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="mt-8 text-center text-gray-500 text-sm">
+            <p>Auto-refreshes every 5 seconds | <a href="/docs" class="text-blue-600 hover:underline">API Docs</a></p>
+        </footer>
+    </div>
+
+    <script>
+        function dashboard() {
+            return {
+                // State
+                stats: {},
+                watcher: { running: false, config: {}, stats: {}, docs_tracked: 0, current_docs: 0 },
+                comments: { running: false, config: {}, stats: {} },
+                posts: [],
+                responses: [],
+                commentReplies: [],
+                loading: false,
+                loadingAction: null,
+                actionResult: null,
+
+                // Config for controls
+                watcherConfig: {
+                    should_post: false,
+                    approve: false,
+                    min_words: 100,
+                    min_lines: 20
+                },
+                commentsConfig: {
+                    should_post: false,
+                    poll_interval: 60
+                },
+
+                // Lifecycle
+                init() {
+                    this.refresh();
+                    // Auto-refresh every 5 seconds
+                    setInterval(() => this.refresh(), 5000);
+                },
+
+                // Refresh all data
+                async refresh() {
+                    try {
+                        const [statsRes, watcherRes, commentsRes, postsRes, responsesRes, repliesRes] = await Promise.all([
+                            fetch('/stats').then(r => r.json()),
+                            fetch('/watcher/status').then(r => r.json()),
+                            fetch('/comments/status').then(r => r.json()),
+                            fetch('/posts').then(r => r.json()),
+                            fetch('/responses').then(r => r.json()),
+                            fetch('/comments/replies').then(r => r.json())
+                        ]);
+
+                        this.stats = statsRes;
+                        this.watcher = watcherRes;
+                        this.comments = commentsRes;
+                        this.posts = postsRes;
+                        this.responses = responsesRes;
+                        this.commentReplies = repliesRes;
+
+                        // Update config from server state
+                        if (watcherRes.config) {
+                            this.watcherConfig = { ...this.watcherConfig, ...watcherRes.config };
+                        }
+                        if (commentsRes.config) {
+                            this.commentsConfig = { ...this.commentsConfig, ...commentsRes.config };
+                        }
+                    } catch (e) {
+                        console.error('Refresh failed:', e);
+                    }
+                },
+
+                // Watcher controls
+                async startWatcher() {
+                    this.loading = true;
+                    try {
+                        const res = await fetch('/watcher/start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.watcherConfig)
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        this.showResult(true, 'Watcher started successfully');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async stopWatcher() {
+                    this.loading = true;
+                    try {
+                        const res = await fetch('/watcher/stop', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        this.showResult(true, 'Watcher stopped');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                // Comments controls
+                async startComments() {
+                    this.loading = true;
+                    try {
+                        const res = await fetch('/comments/start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.commentsConfig)
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        this.showResult(true, 'Comment listener started');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async stopComments() {
+                    this.loading = true;
+                    try {
+                        const res = await fetch('/comments/stop', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        this.showResult(true, 'Comment listener stopped');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                // Quick actions
+                async initEmbeddings() {
+                    this.loading = true;
+                    this.loadingAction = 'init';
+                    try {
+                        const res = await fetch('/embeddings/init', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        this.showResult(true, `Embeddings initialized: ${data.stats.total} total`);
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                    this.loadingAction = null;
+                },
+
+                async refreshEmbeddings() {
+                    this.loading = true;
+                    this.loadingAction = 'refresh';
+                    try {
+                        const res = await fetch('/embeddings/refresh', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        this.showResult(true, `Embeddings refreshed: ${data.stats.total} total`);
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                    this.loadingAction = null;
+                },
+
+                async checkDocs() {
+                    this.loading = true;
+                    try {
+                        const res = await fetch('/watcher/check', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        const msg = data.has_changes
+                            ? `Changes detected! ${data.changes.added?.length || 0} added, ${data.changes.modified?.length || 0} modified`
+                            : 'No changes detected';
+                        this.showResult(true, msg);
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async resetDocs() {
+                    if (!confirm('Reset document state? All docs will be treated as new on next check.')) return;
+                    this.loading = true;
+                    try {
+                        const res = await fetch('/watcher/reset', { method: 'POST' });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail);
+                        this.showResult(true, 'Document state reset');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                // Helpers
+                showResult(success, message) {
+                    this.actionResult = { success, message };
+                    setTimeout(() => { this.actionResult = null; }, 5000);
+                },
+
+                formatDate(dateStr) {
+                    if (!dateStr) return '';
+                    const date = new Date(dateStr);
+                    const now = new Date();
+                    const diff = (now - date) / 1000;
+
+                    if (diff < 60) return 'just now';
+                    if (diff < 3600) return Math.floor(diff / 60) + ' min ago';
+                    if (diff < 86400) return Math.floor(diff / 3600) + ' hours ago';
+                    return date.toLocaleDateString();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
