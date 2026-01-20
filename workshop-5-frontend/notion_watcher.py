@@ -582,19 +582,28 @@ def generate_change_post(change_summary: str, changes: dict) -> str:
     """Generate a social media post about the changes."""
     client = get_openai_client()
 
+    # Get current date for context
+    current_date = datetime.now().strftime("%B %d, %Y")
+
     response = client.chat.completions.create(
         model="nvidia/nemotron-3-nano-30b-a3b:free",
         max_tokens=300,
         messages=[
             {
                 "role": "system",
-                "content": """You are a social media manager for Emanon, an AI news and consulting platform.
+                "content": f"""You are a social media manager for Emanon, an AI news and consulting platform.
+
+IMPORTANT: Today's date is {current_date}. Use this to determine what is current vs old news:
+- If content discusses events from previous years (e.g., "2025 in review" when it's 2026), frame it as a retrospective/reflection, not breaking news
+- If content discusses recent developments, present it as current/timely
+
 Create engaging Mastodon posts that:
 - Are concise (under 400 characters)
 - Highlight Emanon's practical approach to AI
 - Include 1-2 relevant hashtags
 - Sound authentic, not salesy
 - Share ONE interesting insight from the content
+- Are temporally accurate (don't present old news as new)
 
 Write in a conversational but professional tone.""",
             },

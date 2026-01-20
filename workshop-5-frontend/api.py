@@ -381,6 +381,57 @@ async def get_post(post_id: int):
     return PostResponse(**post)
 
 
+@app.post("/posts/{post_id}/publish", response_model=dict)
+async def publish_post(post_id: int):
+    """Publish a pending post to Mastodon immediately."""
+    from mastodon import Mastodon
+
+    db = get_db()
+    post = get_post_by_id(db, post_id)
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post["posted"]:
+        raise HTTPException(status_code=400, detail="Post already published")
+
+    # Check Mastodon credentials
+    access_token = os.environ.get("MASTODON_ACCESS_TOKEN")
+    instance_url = os.environ.get("MASTODON_INSTANCE_URL")
+
+    if not access_token or not instance_url:
+        raise HTTPException(
+            status_code=400,
+            detail="MASTODON_ACCESS_TOKEN and MASTODON_INSTANCE_URL must be set"
+        )
+
+    try:
+        # Post to Mastodon
+        mastodon = Mastodon(
+            access_token=access_token,
+            api_base_url=instance_url,
+        )
+        status = mastodon.status_post(post["content"])
+        post_url = status.get("url", "")
+
+        # Update database
+        cursor = db.cursor()
+        cursor.execute(
+            "UPDATE posts SET posted = 1, post_url = ? WHERE id = ?",
+            (post_url, post_id)
+        )
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Posted to Mastodon",
+            "post_url": post_url,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to post: {str(e)}")
+
+
 # ========================================
 # RESPONSES ENDPOINTS
 # ========================================
