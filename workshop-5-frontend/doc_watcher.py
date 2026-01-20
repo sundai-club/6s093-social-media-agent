@@ -627,7 +627,7 @@ def check_and_process_changes(
     # Generate image for the post
     print("\n--- Generating Image ---")
     try:
-        image_prompt = f"annddrreeww presenting about: {post_content[:200]}"
+        image_prompt = f"annddrreeww, 24 years old male, presenting about: {post_content[:200]}"
         image_url = generate_image(image_prompt)
         result["image_url"] = image_url
         print(f"Image generated: {image_url}")
