@@ -484,8 +484,8 @@
 
                 <!-- Image Preview -->
                 <img
-                    x-show="generatedPost.image_url"
-                    x-bind:src="generatedPost.image_url"
+                    x-show="generatedPost && generatedPost.image_url"
+                    x-bind:src="generatedPost?.image_url"
                     class="w-full max-w-xs rounded-lg border border-edge mb-3"
                     alt="Post image"
                     @error="$el.style.display='none'"
