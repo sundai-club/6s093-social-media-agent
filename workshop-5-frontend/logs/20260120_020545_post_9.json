@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-01-20T02:05:45.079309",
+  "post_id": 9,
+  "source": "api",
+  "rag": {
+    "query": "Make a post about the new year and being excited for ai 2026",
+    "results_count": 3,
+    "results": [
+      {
+        "content": "# IAP course at MIT\n\nToday we ",
+        "source_type": "notion_doc",
+        "score": 0.3112587116449485
+      },
+      {
+        "content": "# The Year AI Grew Up: A 2025 Retrospective\n\nMedia companies pivoted from copyright battles to licensing deals, trading archives for revenue and co-developed AI tools. The industrial era of AI infrast",
+        "source_type": "notion_doc",
+        "score": 0.3085209999365012
+      },
+      {
+        "content": "# target-audience\n\nBusiness Leaders\nProfile:\n- CTOs and technical executives\n- Product managers\n- Founders evaluating AI opportunities\n- Operations leaders considering AI automation\nNeeds:\n- Strategic",
+        "source_type": "notion_doc",
+        "score": 0.30813309587410054
+      }
+    ],
+    "context_text": ""
+  },
+  "post_generation": {
+    "system_prompt": "You are a social media manager for Emanon, an AI news and consulting platform.\nYour task is to create engaging Mastodon posts that:\n- Are concise (under 400 characters)\n- Highlight Emanon's no-hype, practical approach to AI\n- Include 1-2 relevant hashtags\n- Sound authentic, not salesy\n- Share ONE interesting insight\n\nWrite in a conversational but professional tone.",
+    "user_prompt": "Create a single engaging Mastodon post for Emanon.\n\nTopic/Context: Make a post about the new year and being excited for ai 2026\n\n\n\nGenerate just the post text, nothing else.",
+    "generated_post": "Excited to see where AI goes in '26! Forget the hype; let's focus on real-world applications and measurable impact. What practical AI implementations are YOU most looking forward to? #AI2026 #PracticalAI",
+    "post_length": 203
+  },
+  "image_generation": {
+    "prompt": "annddrreeww, 24 years old male, presenting about: Excited to see where AI goes in '26! Forget the hype; let's focus on real-world applications and measurable impact. What practical AI implementations are YOU most looking forward to? #AI2026 #Practica",
+    "url": "https://replicate.delivery/xezq/zFBbBBHvFoYIB5KN4e9D7zL5CRz86cJExLSoov5XfOAItNfrA/out-0.webp"
+  },
+  "extra": {
+    "user_context": "Make a post about the new year and being excited for ai 2026",
+    "generate_image_requested": true
+  }
+}

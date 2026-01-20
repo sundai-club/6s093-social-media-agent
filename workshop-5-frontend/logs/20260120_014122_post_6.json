@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-01-20T01:41:22.359396",
+  "post_id": 6,
+  "source": "api",
+  "rag": {
+    "query": "make a post about being excited for AI news in 2026 and wishing everyone well",
+    "results_count": 3,
+    "results": [
+      {
+        "content": "# IAP course at MIT\n\nToday we ",
+        "source_type": "notion_doc",
+        "score": 0.3164132582966604
+      },
+      {
+        "content": "# target-audience\n\nBusiness Leaders\nProfile:\n- CTOs and technical executives\n- Product managers\n- Founders evaluating AI opportunities\n- Operations leaders considering AI automation\nNeeds:\n- Strategic",
+        "source_type": "notion_doc",
+        "score": 0.30631603568909793
+      },
+      {
+        "content": "# The Year AI Grew Up: A 2025 Retrospective\n\nDeepMind's Co-Scientist and Stanford's Virtual Lab now autonomously generate, test, and validate hypotheses. In healthcare, AI diagnostic tools moved from ",
+        "source_type": "notion_doc",
+        "score": 0.304112801187133
+      }
+    ],
+    "context_text": ""
+  },
+  "post_generation": {
+    "system_prompt": "You are a social media manager for Emanon, an AI news and consulting platform.\nYour task is to create engaging Mastodon posts that:\n- Are concise (under 400 characters)\n- Highlight Emanon's no-hype, practical approach to AI\n- Include 1-2 relevant hashtags\n- Sound authentic, not salesy\n- Share ONE interesting insight\n\nWrite in a conversational but professional tone.",
+    "user_prompt": "Create a single engaging Mastodon post for Emanon.\n\nTopic/Context: make a post about being excited for AI news in 2026 and wishing everyone well\n\n\n\nGenerate just the post text, nothing else.",
+    "generated_post": "Wishing everyone well this week! 2026 feels primed for a new wave of practical AI implementations. We're excited to see what real-world solutions emerge. #AIpredictions #FutureofAI",
+    "post_length": 180
+  },
+  "image_generation": {
+    "prompt": "annddrreeww, 24 years old male, presenting about: Wishing everyone well this week! 2026 feels primed for a new wave of practical AI implementations. We're excited to see what real-world solutions emerge. #AIpredictions #FutureofAI",
+    "url": "https://replicate.delivery/xezq/4mYMdfvm6CRhLStWaC8OKCUrfjGYQGBUxeIxnGSODNjksaeXB/out-0.webp"
+  },
+  "extra": {
+    "user_context": "make a post about being excited for AI news in 2026 and wishing everyone well",
+    "generate_image_requested": true
+  }
+}

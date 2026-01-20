@@ -486,13 +486,11 @@ async def publish_post(post_id: int, request: PublishPostRequest = None):
         content = post["content"]
         hashtag = "#AIgenerated"
         if hashtag.lower() not in content.lower():
-            if len(content) + len(hashtag) + 2 <= 500:
-                content = content.rstrip() + "\n\n" + hashtag
-            elif len(content) + len(hashtag) + 1 <= 500:
+            if len(content) + len(hashtag) + 1 <= 500:
                 content = content.rstrip() + " " + hashtag
             else:
-                max_len = 500 - len(hashtag) - 2
-                content = content[:max_len].rstrip() + "\n\n" + hashtag
+                max_len = 500 - len(hashtag) - 1
+                content = content[:max_len].rstrip() + " " + hashtag
 
         status = mastodon.status_post(content, media_ids=media_ids)
         post_url = status.get("url", "")
@@ -586,11 +584,11 @@ Generate just the post text, nothing else."""
     # Ensure #AIgenerated hashtag is present
     hashtag = "#AIgenerated"
     if hashtag.lower() not in post_content.lower():
-        if len(post_content) + len(hashtag) + 2 <= 500:
-            post_content = post_content.rstrip() + "\n\n" + hashtag
+        if len(post_content) + len(hashtag) + 1 <= 500:
+            post_content = post_content.rstrip() + " " + hashtag
         else:
-            max_len = 500 - len(hashtag) - 2
-            post_content = post_content[:max_len].rstrip() + "\n\n" + hashtag
+            max_len = 500 - len(hashtag) - 1
+            post_content = post_content[:max_len].rstrip() + " " + hashtag
 
     # Generate image if requested
     image_url = None

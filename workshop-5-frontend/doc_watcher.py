@@ -69,15 +69,12 @@ def ensure_ai_generated_hashtag(content: str) -> str:
     """Ensure #AIgenerated hashtag is present at the end of the post."""
     hashtag = "#AIgenerated"
     if hashtag.lower() not in content.lower():
-        # Add hashtag at the end, with a newline if there's room
-        if len(content) + len(hashtag) + 2 <= 500:
-            content = content.rstrip() + "\n\n" + hashtag
-        elif len(content) + len(hashtag) + 1 <= 500:
+        if len(content) + len(hashtag) + 1 <= 500:
             content = content.rstrip() + " " + hashtag
         else:
             # Truncate content to make room for hashtag
-            max_len = 500 - len(hashtag) - 2
-            content = content[:max_len].rstrip() + "\n\n" + hashtag
+            max_len = 500 - len(hashtag) - 1
+            content = content[:max_len].rstrip() + " " + hashtag
     return content
 
 

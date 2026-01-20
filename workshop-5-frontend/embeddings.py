@@ -100,7 +100,7 @@ def fetch_notion_pages() -> list[dict]:
 
 def _split_large_text(text: str, max_chars: int) -> list[str]:
     """
-    Split large text by sentences, falling back to character splits.
+    Split large text by sentences, falling back to word boundaries.
 
     Used when a single paragraph exceeds max_chars.
     """
@@ -117,14 +117,22 @@ def _split_large_text(text: str, max_chars: int) -> list[str]:
     if current.strip():
         pieces.append(current.strip())
 
-    # If any piece is still too large, hard split by characters
+    # If any piece is still too large, split by words (not characters)
     final = []
     for p in pieces:
-        while len(p) > max_chars:
-            final.append(p[:max_chars])
-            p = p[max_chars:]
-        if p:
+        if len(p) <= max_chars:
             final.append(p)
+            continue
+        # Split by words
+        words = p.split()
+        chunk = ""
+        for word in words:
+            if len(chunk) + len(word) + 1 > max_chars and chunk:
+                final.append(chunk.strip())
+                chunk = ""
+            chunk += word + " "
+        if chunk.strip():
+            final.append(chunk.strip())
     return final
 
 
