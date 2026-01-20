@@ -101,6 +101,12 @@ _services = {
             "posts_generated": 0,
             "started_at": None,
         },
+        # Cache for Notion status to avoid rate limiting
+        "notion_cache": {
+            "current_count": 0,
+            "last_fetched": 0,
+            "cache_ttl": 30,  # Only fetch from Notion every 30 seconds
+        },
     },
     "comments": {
         "thread": None,
@@ -128,6 +134,7 @@ class PostResponse(BaseModel):
     id: int
     content: str
     post_url: Optional[str]
+    image_url: Optional[str]
     posted: bool
     created_at: str
 
@@ -448,12 +455,13 @@ async def publish_post(post_id: int, request: PublishPostRequest = None):
             api_base_url=instance_url,
         )
 
-        # Handle image if provided
+        # Handle image - use from request or from database
         media_ids = None
-        if request and request.image_url:
+        image_to_use = (request.image_url if request and request.image_url else None) or post.get("image_url")
+        if image_to_use:
             try:
                 # Download image
-                img_response = requests.get(request.image_url)
+                img_response = requests.get(image_to_use)
                 img_response.raise_for_status()
                 local_path = "/tmp/temp_post_image.webp"
                 with open(local_path, "wb") as f:
@@ -492,6 +500,7 @@ async def generate_post(request: GeneratePostRequest):
     from openai import OpenAI
     from database import save_post
     from datetime import datetime
+    from generation_logger import log_generation
 
     db = get_db()
 
@@ -509,11 +518,17 @@ async def generate_post(request: GeneratePostRequest):
     context_text = request.context.strip() if request.context else ""
 
     # Get Notion docs for context via RAG
+    rag_query = context_text if context_text else "AI consulting services and insights"
+    rag_results = []
+    rag_context = ""
     try:
-        from rag import retrieve_context
-        query = context_text if context_text else "AI consulting services and insights"
-        rag_context = retrieve_context(query, top_k=3)
-    except Exception:
+        from rag import hybrid_search, retrieve_context
+        from embeddings import generate_embedding
+        query_embedding = generate_embedding(rag_query)
+        rag_results = hybrid_search(rag_query, query_embedding, top_k=3)
+        rag_context = retrieve_context(rag_query, top_k=3)
+    except Exception as e:
+        print(f"RAG retrieval error: {e}")
         rag_context = ""
 
     system_prompt = """You are a social media manager for Emanon, an AI news and consulting platform.
@@ -549,6 +564,7 @@ Generate just the post text, nothing else."""
 
     # Generate image if requested
     image_url = None
+    image_prompt = None
     if request.generate_image:
         try:
             import replicate
@@ -564,8 +580,30 @@ Generate just the post text, nothing else."""
             print(f"Image generation failed: {e}")
             # Continue without image
 
-    # Save to database
-    post_id = save_post(db, post_content, posted=False)
+    # Save to database with image_url
+    post_id = save_post(db, post_content, image_url=image_url, posted=False)
+
+    # Log the generation with detailed RAG scores
+    log_generation(
+        post_id=post_id,
+        source="api",
+        rag_query=rag_query,
+        rag_results=[{
+            "content": r["content"][:300],
+            "source_type": r["source_type"],
+            "source_id": r.get("source_id"),
+            "final_score": round(r["final_score"], 4),
+            "bm25_score": round(r.get("bm25_score", 0), 4),
+            "cosine_score": round(r.get("cosine_score", 0), 4),
+        } for r in rag_results],
+        rag_context_text=rag_context,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        generated_post=post_content,
+        image_prompt=image_prompt,
+        image_url=image_url,
+        extra={"user_context": context_text, "generate_image_requested": request.generate_image},
+    )
 
     return GeneratePostResponse(
         id=post_id,
@@ -703,22 +741,30 @@ async def get_watcher_status():
     """Get the current Notion watcher state and statistics."""
     db = get_db()
 
-    # Get Notion page counts
+    # Get Notion page counts from saved state
     saved_state = load_notion_state(db)
 
-    # Try to get current state from Notion
-    try:
-        notion = get_notion_client()
-        parent_id = get_parent_page_id()
-        current_state = get_current_notion_state(notion, parent_id)
-        current_count = len(current_state)
-    except Exception:
-        current_count = 0  # Notion not configured or error
+    # Use cached Notion count to avoid rate limiting
+    cache = _services["watcher"]["notion_cache"]
+    now = time.time()
+
+    # Only fetch from Notion if cache expired (every 30s)
+    if now - cache["last_fetched"] > cache["cache_ttl"]:
+        try:
+            notion = get_notion_client()
+            parent_id = get_parent_page_id()
+            current_state = get_current_notion_state(notion, parent_id)
+            cache["current_count"] = len(current_state)
+            cache["last_fetched"] = now
+        except Exception as e:
+            # Keep old cached value on error, don't spam logs
+            if cache["current_count"] == 0:
+                print(f"Notion status fetch error: {e}")
 
     return WatcherStatusResponse(
         running=_services["watcher"]["running"],
         docs_tracked=len(saved_state),
-        current_docs=current_count,
+        current_docs=cache["current_count"],
         config=_services["watcher"]["config"],
         stats=_services["watcher"]["stats"],
     )
@@ -827,6 +873,33 @@ async def get_embeddings_stats():
         responses=count_embeddings(db, "response"),
         total=count_embeddings(db),
     )
+
+
+# ========================================
+# GENERATION LOGS ENDPOINTS
+# ========================================
+
+
+@app.get("/logs/generations")
+async def get_generation_logs(limit: int = 10):
+    """Get recent generation logs showing RAG context, prompts, and outputs."""
+    from generation_logger import get_recent_logs
+    return get_recent_logs(limit)
+
+
+@app.get("/logs/generations/{post_id}")
+async def get_generation_log(post_id: int):
+    """Get generation log for a specific post."""
+    from pathlib import Path
+    import json
+
+    logs_dir = Path(__file__).parent / "logs"
+    # Find log file for this post
+    for log_file in logs_dir.glob(f"*_post_{post_id}.json"):
+        with open(log_file) as f:
+            return json.load(f)
+
+    raise HTTPException(status_code=404, detail=f"No log found for post {post_id}")
 
 
 # ========================================

@@ -829,6 +829,29 @@ def check_notion_changes(
     try:
         from generation_logger import log_generation
 
+        # Build detailed document info for logging
+        documents_included = []
+        for pid in changes["added"]:
+            info = new_state[pid]
+            content = info["content"]
+            documents_included.append({
+                "title": info["title"],
+                "type": "added",
+                "word_count": len(content.split()),
+                "char_count": len(content),
+                "preview": content[:300] + "..." if len(content) > 300 else content,
+            })
+        for pid in changes["modified"]:
+            info = new_state[pid]
+            content = info["content"]
+            documents_included.append({
+                "title": info["title"],
+                "type": "modified",
+                "word_count": len(content.split()),
+                "char_count": len(content),
+                "preview": content[:300] + "..." if len(content) > 300 else content,
+            })
+
         log_generation(
             post_id=post_id,
             source="notion_watcher",
@@ -841,7 +864,8 @@ def check_notion_changes(
             image_prompt=image_prompt,
             image_url=image_url,
             extra={
-                "changes": {
+                "documents_included": documents_included,  # Detailed doc info with word counts
+                "changes_summary": {
                     "added": [new_state[pid]["title"] for pid in changes["added"]],
                     "modified": [new_state[pid]["title"] for pid in changes["modified"]],
                     "deleted": [old_state[pid]["title"] for pid in changes["deleted"]],
