@@ -304,6 +304,15 @@ async def dashboard():
     return FileResponse(str(index_path))
 
 
+@app.get("/logs")
+async def logs_page():
+    """Serve the generation logs viewer."""
+    logs_path = STATIC_DIR / "logs.html"
+    if not logs_path.exists():
+        raise HTTPException(status_code=404, detail="Logs page not found. Create static/logs.html")
+    return FileResponse(str(logs_path))
+
+
 # ========================================
 # ROOT AND HEALTH ENDPOINTS
 # ========================================
