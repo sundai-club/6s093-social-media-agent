@@ -666,7 +666,7 @@ def get_stats(conn: sqlite3.Connection) -> dict:
     cursor.execute("SELECT COUNT(*) FROM embeddings")
     total_embeddings = cursor.fetchone()[0]
 
-    cursor.execute("SELECT COUNT(*) FROM embeddings WHERE source_type = 'business_doc'")
+    cursor.execute("SELECT COUNT(*) FROM embeddings WHERE source_type = 'notion_doc'")
     business_doc_embeddings = cursor.fetchone()[0]
 
     cursor.execute("SELECT COUNT(*) FROM comment_replies")
