@@ -482,7 +482,19 @@ async def publish_post(post_id: int, request: PublishPostRequest = None):
                 print(f"Failed to attach image: {e}")
                 # Continue without image
 
-        status = mastodon.status_post(post["content"], media_ids=media_ids)
+        # Ensure #AIgenerated hashtag is always present
+        content = post["content"]
+        hashtag = "#AIgenerated"
+        if hashtag.lower() not in content.lower():
+            if len(content) + len(hashtag) + 2 <= 500:
+                content = content.rstrip() + "\n\n" + hashtag
+            elif len(content) + len(hashtag) + 1 <= 500:
+                content = content.rstrip() + " " + hashtag
+            else:
+                max_len = 500 - len(hashtag) - 2
+                content = content[:max_len].rstrip() + "\n\n" + hashtag
+
+        status = mastodon.status_post(content, media_ids=media_ids)
         post_url = status.get("url", "")
 
         # Update database

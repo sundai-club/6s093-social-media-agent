@@ -65,12 +65,31 @@ def download_image(image_url: str, save_path: str) -> str:
     return save_path
 
 
+def ensure_ai_generated_hashtag(content: str) -> str:
+    """Ensure #AIgenerated hashtag is present at the end of the post."""
+    hashtag = "#AIgenerated"
+    if hashtag.lower() not in content.lower():
+        # Add hashtag at the end, with a newline if there's room
+        if len(content) + len(hashtag) + 2 <= 500:
+            content = content.rstrip() + "\n\n" + hashtag
+        elif len(content) + len(hashtag) + 1 <= 500:
+            content = content.rstrip() + " " + hashtag
+        else:
+            # Truncate content to make room for hashtag
+            max_len = 500 - len(hashtag) - 2
+            content = content[:max_len].rstrip() + "\n\n" + hashtag
+    return content
+
+
 def post_to_mastodon_with_image(content: str, image_url: str = None) -> dict:
     """Post content and optional image to Mastodon."""
     mastodon = Mastodon(
         access_token=os.environ["MASTODON_ACCESS_TOKEN"],
         api_base_url=os.environ["MASTODON_INSTANCE_URL"],
     )
+
+    # Ensure #AIgenerated hashtag is always present
+    content = ensure_ai_generated_hashtag(content)
 
     if image_url is None:
         return mastodon.status_post(content)
