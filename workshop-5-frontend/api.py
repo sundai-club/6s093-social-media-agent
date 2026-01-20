@@ -133,8 +133,8 @@ _services = {
 class PostResponse(BaseModel):
     id: int
     content: str
-    post_url: Optional[str]
-    image_url: Optional[str]
+    post_url: Optional[str] = None
+    image_url: Optional[str] = None
     posted: bool
     created_at: str
 
