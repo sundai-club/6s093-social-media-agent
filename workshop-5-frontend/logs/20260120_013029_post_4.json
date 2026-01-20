@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-01-20T01:30:29.350729",
+  "post_id": 4,
+  "source": "notion_watcher",
+  "rag": {
+    "query": null,
+    "results_count": 0,
+    "results": [],
+    "context_text": "## New Documents Added\n\n### target-audience\n# Emanon - Target Audience\nEmanon serves three primary audience segments, all united by a desire for practical, actionable AI insights without the hype.\n---\n## 1. Software Engineers\nProfile:\n- Developers integrating AI into applications\n- Engineers evaluating LLMs and AI tools\n- Technical leads architecting AI systems\nNeeds:\n- Practical implementation guidance\n- Understanding of LLM capabilities and limitations\n- Tool and framework comparisons\n- Code examples and tutorials\nValue Proposition:\nLea...\n\n### The Year AI Grew Up: A 2025 Retrospective\n2025 wasn't just another year of incremental AI progress. It was the year artificial intelligence transitioned from experimental technology to essential infrastructure, reshaping industries, geopolitics, and how we think about intelligence itself.\n## The Reasoning Revolution\nThe most significant shift came in how AI models think. Early January delivered a shock when Chinese firm DeepSeek released R1, a reasoning model matching OpenAI's best at a fraction of the training cost. This wasn't just a ...\n\n### technology-stack\n# Emanon - Technology Stack\n## Frontend\n---\n## Backend & APIs\n---\n## Infrastructure\n---\n## Build Tools\n\u2022 Node.js with npm\n\u2022 Astro CLI for development and building\n\u2022 Gray-matter for frontmatter parsing\n---\n## Key Integrations\n### Stripe Integration\n\u2022 Three-tier subscription model\n\u2022 One-time donations\n\u2022 Webhook handling for subscription events\n### Email System (Resend)\n\u2022 Newsletter delivery\n\u2022 Subscription management\n\u2022 Context tracking\n### AI Integration (Anthropic)\n\u2022 Claude SDK (v0.71.0+)\n\u2022 Automa...\n\n### IAP course at MIT\nToday we \n\n### business-model\n# Emanon - Business Model\n## Revenue Streams\n### 1. Recurring Subscriptions (Stripe Billing)\nThree-tier subscription model:\n### 2. One-time Donations\n\u2022 Flexible donation amounts ($1 - $10,000 USD)\n\u2022 Processed through Stripe\n\u2022 Supports content creation and platform development\n### 3. Consulting Services\n\u2022 1-hour AI strate"
+  },
+  "post_generation": {
+    "system_prompt": "You are a social media manager for Emanon, an AI news and consulting platform.\nToday's date is January 20, 2026. Create engaging Mastodon posts that are concise, practical, and authentic.",
+    "user_prompt": "Based on documentation updates, create a post:\n\n## New Documents Added\n\n### target-audience\n# Emanon - Target Audience\nEmanon serves three primary audience segments, all united by a desire for practical, actionable AI insights without the hype.\n---\n## 1. Software Engineers\nProfile:\n- Developers integrating AI into applications\n- Engineers evaluating LLMs and AI tools\n- Technical leads architecting AI systems\nNeeds:\n- Practical implementation guidance\n- Understanding of LLM capabilities and limitations\n- Tool and framework comparisons\n- Code e...",
+    "generated_post": "2025 marked the shift of AI from hype to everyday infrastructure\u2014think DeepSeek\u2019s R1 delivering advanced reasoning at lower cost. Emanon now serves three hands\u2011on audiences: engineers building with LLMs, decision\u2011makers shaping AI policy, and seasoned professionals using AI daily. #AI #Emanon",
+    "post_length": 293
+  },
+  "image_generation": {
+    "prompt": "annddrreeww, 24 years old male, presenting about: 2025 marked the shift of AI from hype to everyday infrastructure\u2014think DeepSeek\u2019s R1 delivering advanced reasoning at lower cost. Emanon now serves three hands\u2011on audiences: engineers building with LL",
+    "url": "https://replicate.delivery/xezq/Xfeqn33xIfd75JBKPzOZRAeKqQxnkWmiQ2vHMCLpGd2Vw08XB/out-0.webp"
+  },
+  "extra": {
+    "changes": {
+      "added": [
+        "target-audience",
+        "The Year AI Grew Up: A 2025 Retrospective",
+        "technology-stack",
+        "IAP course at MIT",
+        "business-model",
+        "overview",
+        "products-services"
+      ],
+      "modified": [],
+      "deleted": []
+    },
+    "embeddings_updated": 17
+  }
+}

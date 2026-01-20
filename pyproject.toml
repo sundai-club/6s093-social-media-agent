@@ -3,7 +3,7 @@ name = "workshop1"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "mastodon-py>=2.1.4",
     "openai>=2.15.0",
@@ -14,4 +14,11 @@ dependencies = [
     # Workshop 3 dependencies
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",
+    "watchdog>=6.0.0",
+    # Workshop 4 RAG dependencies
+    "fastembed>=0.2.0",
+    "numpy>=1.24.0",
+    # Workshop 5 Notion integration
+    "notion-client>=2.2.0",
+    "logfire>=4.19.0",
 ]

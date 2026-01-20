@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-01-20T01:45:25.984410",
+  "post_id": 7,
+  "source": "api",
+  "rag": {
+    "query": "make a post about being excited for AI news in 2026 and wishing everyone well for emanon",
+    "results_count": 3,
+    "results": [
+      {
+        "content": "# IAP course at MIT\n\nToday we ",
+        "source_type": "notion_doc",
+        "score": 0.3186145812463618
+      },
+      {
+        "content": "# The Year AI Grew Up: A 2025 Retrospective\n\nDeepMind's Co-Scientist and Stanford's Virtual Lab now autonomously generate, test, and validate hypotheses. In healthcare, AI diagnostic tools moved from ",
+        "source_type": "notion_doc",
+        "score": 0.3101800820716224
+      },
+      {
+        "content": "# target-audience\n\nBusiness Leaders\nProfile:\n- CTOs and technical executives\n- Product managers\n- Founders evaluating AI opportunities\n- Operations leaders considering AI automation\nNeeds:\n- Strategic",
+        "source_type": "notion_doc",
+        "score": 0.30750996038118544
+      }
+    ],
+    "context_text": ""
+  },
+  "post_generation": {
+    "system_prompt": "You are a social media manager for Emanon, an AI news and consulting platform.\nYour task is to create engaging Mastodon posts that:\n- Are concise (under 400 characters)\n- Highlight Emanon's no-hype, practical approach to AI\n- Include 1-2 relevant hashtags\n- Sound authentic, not salesy\n- Share ONE interesting insight\n\nWrite in a conversational but professional tone.",
+    "user_prompt": "Create a single engaging Mastodon post for Emanon.\n\nTopic/Context: make a post about being excited for AI news in 2026 and wishing everyone well for emanon\n\n\n\nGenerate just the post text, nothing else.",
+    "generated_post": "Beyond the buzz, we're genuinely excited to see what practical AI solutions emerge by 2026. Wishing everyone at Emanon (and beyond!), a successful and insightful journey ahead. \u2728 #AI #FutureofAI",
+    "post_length": 194
+  },
+  "image_generation": {
+    "prompt": "annddrreeww, 24 years old male, presenting about: Beyond the buzz, we're genuinely excited to see what practical AI solutions emerge by 2026. Wishing everyone at Emanon (and beyond!), a successful and insightful journey ahead. \u2728 #AI #FutureofAI",
+    "url": "https://replicate.delivery/xezq/5Ff8v6enYxuDyEtLcsCCqs5f95Fw7jyKQb4LMHMrGnVL0aeXB/out-0.webp"
+  },
+  "extra": {
+    "user_context": "make a post about being excited for AI news in 2026 and wishing everyone well for emanon",
+    "generate_image_requested": true
+  }
+}

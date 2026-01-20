@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generation Logs | Emanon</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'display': ['Outfit', 'sans-serif'],
+                        'mono': ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        'void': '#0a0a0f',
+                        'surface': '#12121a',
+                        'surface-2': '#1a1a24',
+                        'surface-3': '#22222e',
+                        'edge': '#2a2a38',
+                        'muted': '#6b6b80',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        body {
+            background: #0a0a0f;
+            background-image:
+                radial-gradient(ellipse at 20% 0%, rgba(251, 191, 36, 0.03) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 100%, rgba(139, 92, 246, 0.03) 0%, transparent 50%);
+        }
+        .card {
+            background: linear-gradient(135deg, rgba(26, 26, 36, 0.8) 0%, rgba(18, 18, 26, 0.9) 100%);
+            border: 1px solid rgba(42, 42, 56, 0.5);
+            backdrop-filter: blur(20px);
+        }
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #2a2a38; border-radius: 3px; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body class="min-h-screen font-display text-white antialiased">
+    <div x-data="logsViewer()" x-init="init()" x-cloak class="max-w-7xl mx-auto px-6 py-8">
+
+        <!-- Header -->
+        <header class="mb-8">
+            <div class="flex items-center justify-between">
+                <div>
+                    <div class="flex items-center gap-3 mb-1">
+                        <a href="/dashboard" class="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-void" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                            </div>
+                            <h1 class="text-2xl font-semibold tracking-tight">Emanon</h1>
+                        </a>
+                        <span class="text-muted">/</span>
+                        <span class="text-lg">Generation Logs</span>
+                    </div>
+                    <p class="text-muted text-sm font-mono">View RAG context, prompts, and outputs</p>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button
+                        @click="fetchLogs()"
+                        class="px-4 py-2 rounded-xl bg-surface-3 text-gray-300 text-sm font-medium hover:bg-edge transition-colors"
+                    >
+                        Refresh
+                    </button>
+                    <a href="/dashboard" class="text-sm text-muted hover:text-white transition-colors">← Dashboard</a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Logs List -->
+        <div class="space-y-4">
+            <template x-for="log in logs" :key="log.timestamp">
+                <div class="card rounded-2xl overflow-hidden">
+                    <!-- Log Header -->
+                    <div
+                        @click="toggleLog(log.timestamp)"
+                        class="p-4 cursor-pointer hover:bg-surface-2/50 transition-colors flex items-center justify-between"
+                    >
+                        <div class="flex items-center gap-4">
+                            <span
+                                class="px-2 py-1 rounded-lg text-xs font-mono"
+                                :class="log.source === 'notion_watcher' ? 'bg-violet-500/20 text-violet-400' : 'bg-amber-500/20 text-amber-400'"
+                                x-text="log.source"
+                            ></span>
+                            <span class="text-sm text-gray-300" x-text="'Post #' + log.post_id"></span>
+                            <span class="text-xs text-muted font-mono" x-text="formatDate(log.timestamp)"></span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <span class="text-xs text-muted" x-text="log.post_generation?.post_length + ' chars'"></span>
+                            <svg
+                                class="w-5 h-5 text-muted transition-transform"
+                                :class="expanded[log.timestamp] ? 'rotate-180' : ''"
+                                fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                            >
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </div>
+                    </div>
+
+                    <!-- Log Details -->
+                    <div x-show="expanded[log.timestamp]" x-collapse class="border-t border-edge/50">
+                        <!-- Generated Post -->
+                        <div class="p-4 border-b border-edge/30">
+                            <h4 class="text-xs text-amber-400 uppercase tracking-wider mb-2">Generated Post</h4>
+                            <p class="text-sm text-gray-200 bg-surface-2 p-3 rounded-lg" x-text="log.post_generation?.generated_post"></p>
+                            <template x-if="log.image_generation?.url">
+                                <img :src="log.image_generation.url" class="mt-3 max-w-xs rounded-lg border border-edge" alt="Generated image">
+                            </template>
+                        </div>
+
+                        <!-- Documents Included (for notion_watcher) -->
+                        <template x-if="log.extra?.documents_included?.length > 0">
+                            <div class="p-4 border-b border-edge/30">
+                                <h4 class="text-xs text-violet-400 uppercase tracking-wider mb-2">Documents Included</h4>
+                                <div class="space-y-2">
+                                    <template x-for="doc in log.extra.documents_included" :key="doc.title">
+                                        <div class="bg-surface-2 p-3 rounded-lg">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-sm font-medium text-gray-200" x-text="doc.title"></span>
+                                                <span
+                                                    class="text-xs px-1.5 py-0.5 rounded"
+                                                    :class="doc.type === 'added' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'"
+                                                    x-text="doc.type"
+                                                ></span>
+                                            </div>
+                                            <div class="text-xs text-muted mb-2">
+                                                <span x-text="doc.word_count + ' words'"></span> ·
+                                                <span x-text="doc.char_count + ' chars'"></span>
+                                            </div>
+                                            <p class="text-xs text-gray-400 font-mono" x-text="doc.preview"></p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- RAG Results (for api) -->
+                        <template x-if="log.rag?.results?.length > 0">
+                            <div class="p-4 border-b border-edge/30">
+                                <h4 class="text-xs text-emerald-400 uppercase tracking-wider mb-2">RAG Results</h4>
+                                <p class="text-xs text-muted mb-2">Query: <span class="text-gray-300" x-text="log.rag.query"></span></p>
+                                <div class="space-y-2">
+                                    <template x-for="(result, idx) in log.rag.results" :key="idx">
+                                        <div class="bg-surface-2 p-3 rounded-lg">
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <span class="text-xs px-1.5 py-0.5 rounded bg-surface-3 text-gray-300" x-text="result.source_type"></span>
+                                                <span class="text-xs text-emerald-400 font-mono">
+                                                    score: <span x-text="result.final_score?.toFixed(4) || result.score?.toFixed(4)"></span>
+                                                </span>
+                                                <template x-if="result.bm25_score !== undefined">
+                                                    <span class="text-xs text-muted font-mono">
+                                                        (bm25: <span x-text="result.bm25_score?.toFixed(3)"></span>,
+                                                        cosine: <span x-text="result.cosine_score?.toFixed(3)"></span>)
+                                                    </span>
+                                                </template>
+                                            </div>
+                                            <p class="text-xs text-gray-400 font-mono" x-text="result.content"></p>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Prompts (collapsible) -->
+                        <div class="p-4">
+                            <button
+                                @click="showPrompts[log.timestamp] = !showPrompts[log.timestamp]"
+                                class="text-xs text-muted hover:text-gray-300 transition-colors flex items-center gap-1"
+                            >
+                                <svg
+                                    class="w-4 h-4 transition-transform"
+                                    :class="showPrompts[log.timestamp] ? 'rotate-90' : ''"
+                                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                                >
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                </svg>
+                                Show Prompts
+                            </button>
+                            <div x-show="showPrompts[log.timestamp]" x-collapse class="mt-3 space-y-3">
+                                <div>
+                                    <h5 class="text-xs text-muted uppercase mb-1">System Prompt</h5>
+                                    <pre class="text-xs text-gray-400 bg-surface-2 p-3 rounded-lg overflow-x-auto" x-text="log.post_generation?.system_prompt"></pre>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs text-muted uppercase mb-1">User Prompt</h5>
+                                    <pre class="text-xs text-gray-400 bg-surface-2 p-3 rounded-lg overflow-x-auto max-h-96 overflow-y-auto scrollbar-thin" x-text="log.post_generation?.user_prompt"></pre>
+                                </div>
+                                <template x-if="log.image_generation?.prompt">
+                                    <div>
+                                        <h5 class="text-xs text-muted uppercase mb-1">Image Prompt</h5>
+                                        <pre class="text-xs text-gray-400 bg-surface-2 p-3 rounded-lg" x-text="log.image_generation.prompt"></pre>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <p x-show="logs.length === 0" class="text-center text-muted py-12">No generation logs found</p>
+        </div>
+    </div>
+
+    <script>
+        function logsViewer() {
+            return {
+                logs: [],
+                expanded: {},
+                showPrompts: {},
+
+                async init() {
+                    await this.fetchLogs();
+                },
+
+                async fetchLogs() {
+                    try {
+                        const res = await fetch('/logs/generations?limit=20');
+                        this.logs = await res.json();
+                    } catch (e) {
+                        console.error('Failed to fetch logs:', e);
+                    }
+                },
+
+                toggleLog(timestamp) {
+                    this.expanded[timestamp] = !this.expanded[timestamp];
+                },
+
+                formatDate(dateStr) {
+                    if (!dateStr) return '';
+                    const date = new Date(dateStr);
+                    return date.toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>
