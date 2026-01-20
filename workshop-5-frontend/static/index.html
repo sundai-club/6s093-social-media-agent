@@ -192,15 +192,30 @@
                     <template x-for="post in pendingPosts.slice(0, 5)" :key="post.id">
                         <div class="bg-surface/50 rounded-xl p-4 border border-edge/50 hover:border-amber-500/30 transition-colors">
                             <p class="text-sm text-gray-300 leading-relaxed mb-3" x-text="post.content"></p>
-                            <div class="flex items-center justify-between">
+                            <div class="flex items-center justify-between flex-wrap gap-2">
                                 <span class="text-xs text-muted font-mono" x-text="formatDate(post.created_at)"></span>
-                                <button
-                                    @click="postNow(post.id)"
-                                    :disabled="loading"
-                                    class="btn-post px-4 py-1.5 rounded-lg text-void text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    Post Now
-                                </button>
+                                <div class="flex items-center gap-2">
+                                    <button
+                                        @click="postNow(post.id)"
+                                        :disabled="loading"
+                                        class="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-medium hover:bg-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                                    >
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        Approve
+                                    </button>
+                                    <button
+                                        @click="rejectPendingPost(post.id)"
+                                        :disabled="loading"
+                                        class="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-400 text-sm font-medium hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                                    >
+                                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                        Reject
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </template>
@@ -700,7 +715,23 @@
                             const data = await res.json();
                             throw new Error(data.detail || 'Failed to post');
                         }
-                        this.showResult(true, 'Posted to Mastodon!');
+                        this.showResult(true, 'Approved and posted to Mastodon!');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async rejectPendingPost(postId) {
+                    this.loading = true;
+                    try {
+                        const res = await fetch(`/posts/${postId}`, { method: 'DELETE' });
+                        if (!res.ok) {
+                            const data = await res.json();
+                            throw new Error(data.detail || 'Failed to delete');
+                        }
+                        this.showResult(true, 'Post rejected and deleted');
                         await this.refresh();
                     } catch (e) {
                         this.showResult(false, e.message);
