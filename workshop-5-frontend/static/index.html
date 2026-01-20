@@ -191,6 +191,14 @@
                 <div class="space-y-3">
                     <template x-for="post in pendingPosts.slice(0, 5)" :key="post.id">
                         <div class="bg-surface/50 rounded-xl p-4 border border-edge/50 hover:border-amber-500/30 transition-colors">
+                            <!-- Post Image -->
+                            <img
+                                x-show="post.image_url"
+                                x-bind:src="post.image_url"
+                                class="w-full max-w-xs rounded-lg border border-edge mb-3"
+                                alt="Post image"
+                                @error="$el.style.display='none'"
+                            >
                             <p class="text-sm text-gray-300 leading-relaxed mb-3" x-text="post.content"></p>
                             <div class="flex items-center justify-between flex-wrap gap-2">
                                 <span class="text-xs text-muted font-mono" x-text="formatDate(post.created_at)"></span>
@@ -474,14 +482,13 @@
                 </div>
 
                 <!-- Image Preview -->
-                <div x-show="generatedPost?.image_url" class="mb-4">
-                    <img
-                        x-bind:src="generatedPost?.image_url"
-                        class="w-full max-w-sm rounded-xl border border-edge"
-                        alt="Generated AI image"
-                        @error="$el.style.display='none'"
-                    >
-                </div>
+                <img
+                    x-show="generatedPost.image_url"
+                    x-bind:src="generatedPost.image_url"
+                    class="w-full max-w-xs rounded-lg border border-edge mb-3"
+                    alt="Post image"
+                    @error="$el.style.display='none'"
+                >
 
                 <!-- Post Content -->
                 <div class="p-4 rounded-lg bg-surface-2 border border-edge/50 mb-4">
@@ -592,8 +599,16 @@
                 <div class="space-y-3 max-h-80 overflow-y-auto scrollbar-thin pr-2">
                     <template x-for="post in posts.slice(0, 10)" :key="post.id">
                         <div class="p-3 rounded-xl bg-surface/50 border border-edge/30 hover:border-edge transition-colors">
+                            <!-- Post Image Thumbnail -->
+                            <img
+                                x-show="post.image_url"
+                                x-bind:src="post.image_url"
+                                class="w-20 h-20 object-cover rounded-lg border border-edge float-right ml-3 mb-2"
+                                alt="Post image"
+                                @error="$el.style.display='none'"
+                            >
                             <p class="text-sm text-gray-300 leading-relaxed line-clamp-2" x-text="post.content"></p>
-                            <div class="flex items-center gap-2 mt-2">
+                            <div class="flex items-center gap-2 mt-2 clear-both">
                                 <span
                                     class="text-xs px-2 py-0.5 rounded-full font-medium"
                                     :class="post.posted ? 'bg-emerald-500/10 text-emerald-400' : 'bg-amber-500/10 text-amber-400'"

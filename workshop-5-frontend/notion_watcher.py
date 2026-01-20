@@ -506,11 +506,46 @@ def update_notion_embeddings(db, new_state: dict, changes: dict) -> int:
     return updated
 
 
+def _split_large_text(text: str, max_chars: int) -> list[str]:
+    """Split large text by sentences, falling back to word boundaries."""
+    import re
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    pieces = []
+    current = ""
+    for sent in sentences:
+        if len(current) + len(sent) > max_chars and current:
+            pieces.append(current.strip())
+            current = ""
+        current += sent + " "
+    if current.strip():
+        pieces.append(current.strip())
+
+    # If any piece is still too large, split by words (not characters)
+    final = []
+    for p in pieces:
+        if len(p) <= max_chars:
+            final.append(p)
+            continue
+        # Split by words
+        words = p.split()
+        chunk = ""
+        for word in words:
+            if len(chunk) + len(word) + 1 > max_chars and chunk:
+                final.append(chunk.strip())
+                chunk = ""
+            chunk += word + " "
+        if chunk.strip():
+            final.append(chunk.strip())
+    return final
+
+
 def chunk_content(content: str, title: str, max_chars: int = 1000) -> list[dict]:
     """
     Split content into chunks for embedding.
 
     Each chunk includes the document title for context.
+    Handles large paragraphs by splitting them into smaller pieces.
     """
     chunks = []
 
@@ -518,21 +553,29 @@ def chunk_content(content: str, title: str, max_chars: int = 1000) -> list[dict]
     paragraphs = content.split("\n\n")
 
     current_chunk = f"# {title}\n\n"
+    title_overhead = len(title) + 20  # Account for "# title\n\n"
 
     for para in paragraphs:
         para = para.strip()
         if not para:
             continue
 
-        # If adding this paragraph exceeds max, save current chunk and start new
-        if len(current_chunk) + len(para) > max_chars and len(current_chunk) > len(title) + 10:
-            chunks.append({"text": current_chunk.strip()})
-            current_chunk = f"# {title}\n\n"
+        # Split large paragraphs into smaller pieces
+        if len(para) > max_chars - title_overhead:
+            para_pieces = _split_large_text(para, max_chars - title_overhead)
+        else:
+            para_pieces = [para]
 
-        current_chunk += para + "\n\n"
+        for piece in para_pieces:
+            # If adding this piece exceeds max, save current chunk and start new
+            if len(current_chunk) + len(piece) > max_chars and len(current_chunk) > title_overhead:
+                chunks.append({"text": current_chunk.strip()})
+                current_chunk = f"# {title}\n\n"
+
+            current_chunk += piece + "\n\n"
 
     # Don't forget the last chunk
-    if len(current_chunk.strip()) > len(title) + 10:
+    if len(current_chunk.strip()) > title_overhead:
         chunks.append({"text": current_chunk.strip()})
 
     # If no chunks were created, create one with whatever we have
@@ -578,20 +621,22 @@ def get_openai_client():
     )
 
 
-def generate_change_post(change_summary: str, changes: dict) -> str:
-    """Generate a social media post about the changes."""
+def generate_change_post(change_summary: str, changes: dict) -> dict:
+    """
+    Generate a social media post about the changes.
+
+    Returns dict with:
+    - content: the generated post
+    - system_prompt: the system prompt used
+    - user_prompt: the user prompt used
+    - change_summary_full: the full change summary (for logging)
+    """
     client = get_openai_client()
 
     # Get current date for context
     current_date = datetime.now().strftime("%B %d, %Y")
 
-    response = client.chat.completions.create(
-        model="nvidia/nemotron-3-nano-30b-a3b:free",
-        max_tokens=300,
-        messages=[
-            {
-                "role": "system",
-                "content": f"""You are a social media manager for Emanon, an AI news and consulting platform.
+    system_prompt = f"""You are a social media manager for Emanon, an AI news and consulting platform.
 
 IMPORTANT: Today's date is {current_date}. Use this to determine what is current vs old news:
 - If content discusses events from previous years (e.g., "2025 in review" when it's 2026), frame it as a retrospective/reflection, not breaking news
@@ -605,16 +650,20 @@ Create engaging Mastodon posts that:
 - Share ONE interesting insight from the content
 - Are temporally accurate (don't present old news as new)
 
-Write in a conversational but professional tone.""",
-            },
-            {
-                "role": "user",
-                "content": f"""Based on the following documentation updates, create a single engaging Mastodon post.
+Write in a conversational but professional tone."""
 
-{change_summary[:2000]}
+    user_prompt = f"""Based on the following documentation updates, create a single engaging Mastodon post.
 
-Generate just the post text, nothing else.""",
-            },
+{change_summary}
+
+Generate just the post text, nothing else."""
+
+    response = client.chat.completions.create(
+        model="nvidia/nemotron-3-nano-30b-a3b:free",
+        max_tokens=300,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
         ],
     )
 
@@ -631,7 +680,12 @@ Generate just the post text, nothing else.""",
             paragraphs = [p.strip() for p in reasoning.split('\n\n') if len(p.strip()) > 50]
             content = paragraphs[0][:400] if paragraphs else reasoning[:400]
 
-    return (content or "Unable to generate post.").strip()
+    return {
+        "content": (content or "Unable to generate post.").strip(),
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+        "change_summary_full": change_summary,
+    }
 
 
 # ========================================
@@ -744,7 +798,8 @@ def check_notion_changes(
 
     # Generate post
     print("\n--- Generating Post ---")
-    post_content = generate_change_post(change_summary, changes)
+    post_result = generate_change_post(change_summary, changes)
+    post_content = post_result["content"]
     result["post_content"] = post_content
 
     print("\n" + "=" * 60)
@@ -753,28 +808,63 @@ def check_notion_changes(
     print(post_content)
     print("=" * 60)
 
-    # Save to database
-    post_id = save_post(db, post_content, posted=False)
+    # Generate image
+    print("\n--- Generating Image ---")
+    image_url = None
+    image_prompt = None
+    try:
+        from doc_watcher import generate_image
+        image_prompt = f"annddrreeww, 24 years old male, presenting about: {post_content[:200]}"
+        image_url = generate_image(image_prompt)
+        result["image_url"] = image_url
+        print(f"Image generated: {image_url}")
+    except Exception as e:
+        print(f"Error generating image: {e}")
+
+    # Save to database (with image_url)
+    post_id = save_post(db, post_content, image_url=image_url, posted=False)
     print(f"\nSaved post to database (ID: {post_id})")
+
+    # Log the generation with ACTUAL prompts used
+    try:
+        from generation_logger import log_generation
+
+        log_generation(
+            post_id=post_id,
+            source="notion_watcher",
+            rag_query=None,  # Notion watcher uses change detection, not RAG query
+            rag_results=None,
+            rag_context_text=post_result["change_summary_full"],  # Full change summary
+            system_prompt=post_result["system_prompt"],  # Actual system prompt
+            user_prompt=post_result["user_prompt"],  # Actual user prompt (full, not truncated)
+            generated_post=post_content,
+            image_prompt=image_prompt,
+            image_url=image_url,
+            extra={
+                "changes": {
+                    "added": [new_state[pid]["title"] for pid in changes["added"]],
+                    "modified": [new_state[pid]["title"] for pid in changes["modified"]],
+                    "deleted": [old_state[pid]["title"] for pid in changes["deleted"]],
+                },
+                "embeddings_updated": updated,
+            },
+        )
+    except Exception as e:
+        print(f"Logging error (non-fatal): {e}")
 
     # Telegram approval workflow (if enabled)
     if approve:
         from doc_watcher import wait_for_decision, post_to_mastodon_with_image
 
         print("\n📱 Sending to Telegram for approval...")
-        decision = wait_for_decision(post_content, None)
+        decision = wait_for_decision(post_content, image_url)
 
         if decision == "approve":
             print("✅ Human approved the post!")
             if should_post:
                 print("\nPosting to Mastodon...")
                 try:
-                    from mastodon import Mastodon
-                    mastodon = Mastodon(
-                        access_token=os.environ["MASTODON_ACCESS_TOKEN"],
-                        api_base_url=os.environ["MASTODON_INSTANCE_URL"],
-                    )
-                    status = mastodon.status_post(post_content)
+                    status = post_to_mastodon_with_image(post_content, image_url)
                     result["post_url"] = status["url"]
                     print(f"Posted successfully! URL: {status['url']}")
 
