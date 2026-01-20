@@ -34,14 +34,15 @@ from database import (
 )
 
 # Import from other workshop-5 modules
-from doc_watcher import (
-    check_and_process_changes,
-    load_saved_state,
-    get_current_doc_state,
-    detect_changes,
-    save_doc_state,
-    DocChangeHandler,
-    BUSINESS_DOCS_DIR,
+from notion_watcher import (
+    check_notion_changes,
+    load_notion_state,
+    get_current_notion_state,
+    get_notion_client,
+    get_parent_page_id,
+    detect_notion_changes,
+    save_notion_state,
+    DEFAULT_POLL_INTERVAL,
     DEFAULT_MIN_WORDS,
     DEFAULT_MIN_LINES,
 )
@@ -175,6 +176,7 @@ class WatcherStartRequest(BaseModel):
     approve: bool = Field(default=False, description="Enable Telegram approval flow")
     min_words: int = Field(default=DEFAULT_MIN_WORDS, description="Min word changes to trigger post")
     min_lines: int = Field(default=DEFAULT_MIN_LINES, description="Min line changes to trigger post")
+    poll_interval: int = Field(default=DEFAULT_POLL_INTERVAL, description="Notion polling interval in seconds")
 
 
 class WatcherStatusResponse(BaseModel):
@@ -408,59 +410,47 @@ async def get_response(response_id: int):
 
 
 def _watcher_thread_fn(stop_event: threading.Event, config: dict):
-    """Background thread function for event-driven document watching."""
-    try:
-        from watchdog.observers import Observer
-        from watchdog.events import FileSystemEventHandler
-    except ImportError:
-        print("watchdog library not installed, watcher cannot start")
-        return
+    """Background thread function for Notion document polling."""
+    poll_interval = config.get("poll_interval", DEFAULT_POLL_INTERVAL)
 
-    handler = DocChangeHandler(
-        should_post=config["should_post"],
-        approve=config["approve"],
-        min_words=config["min_words"],
-        min_lines=config["min_lines"],
-    )
-    _services["watcher"]["handler"] = handler
-
-    class WatchdogHandler(FileSystemEventHandler):
-        def on_created(self, event):
-            if not event.is_directory:
-                handler.on_change("created", event.src_path)
-
-        def on_modified(self, event):
-            if not event.is_directory:
-                handler.on_change("modified", event.src_path)
-
-        def on_deleted(self, event):
-            if not event.is_directory:
-                handler.on_change("deleted", event.src_path)
-
-        def on_moved(self, event):
-            if not event.is_directory:
-                handler.on_change("moved", event.dest_path)
-
-    observer = Observer()
-    observer.schedule(WatchdogHandler(), str(BUSINESS_DOCS_DIR), recursive=False)
-    observer.start()
-    _services["watcher"]["observer"] = observer
-
-    # Wait until stop event is set
     while not stop_event.is_set():
-        time.sleep(0.5)
+        try:
+            db = get_db()
+            result = check_notion_changes(
+                db,
+                should_post=config["should_post"],
+                approve=config["approve"],
+                min_words=config["min_words"],
+                min_lines=config["min_lines"],
+            )
 
-    # Cleanup
-    handler.stop()
-    observer.stop()
-    observer.join()
+            if result["has_changes"]:
+                _services["watcher"]["stats"]["changes_detected"] += 1
+                if result.get("post_content"):
+                    _services["watcher"]["stats"]["posts_generated"] += 1
+
+        except Exception as e:
+            print(f"Notion watcher error: {e}")
+
+        # Sleep with stop check
+        for _ in range(poll_interval):
+            if stop_event.is_set():
+                break
+            time.sleep(1)
 
 
 @app.post("/watcher/start", response_model=dict)
 async def start_watcher(request: WatcherStartRequest):
-    """Start the document watcher in background (event-driven mode)."""
+    """Start the Notion document watcher in background (polling mode)."""
     if _services["watcher"]["running"]:
         raise HTTPException(status_code=400, detail="Watcher is already running")
+
+    # Check Notion env vars
+    if not os.environ.get("NOTION_API_KEY") or not os.environ.get("NOTION_PARENT_PAGE_ID"):
+        raise HTTPException(
+            status_code=400,
+            detail="NOTION_API_KEY and NOTION_PARENT_PAGE_ID must be set"
+        )
 
     # Update config
     _services["watcher"]["config"] = {
@@ -468,6 +458,7 @@ async def start_watcher(request: WatcherStartRequest):
         "approve": request.approve,
         "min_words": request.min_words,
         "min_lines": request.min_lines,
+        "poll_interval": request.poll_interval,
     }
 
     # Reset stop event and start thread
@@ -485,14 +476,14 @@ async def start_watcher(request: WatcherStartRequest):
 
     return {
         "status": "started",
-        "message": f"Watcher started monitoring {BUSINESS_DOCS_DIR}",
+        "message": f"Notion watcher started (polling every {request.poll_interval}s)",
         "config": _services["watcher"]["config"],
     }
 
 
 @app.post("/watcher/stop", response_model=dict)
 async def stop_watcher():
-    """Stop the document watcher."""
+    """Stop the Notion document watcher."""
     if not _services["watcher"]["running"]:
         raise HTTPException(status_code=400, detail="Watcher is not running")
 
@@ -506,28 +497,34 @@ async def stop_watcher():
 
     _services["watcher"]["running"] = False
     _services["watcher"]["thread"] = None
-    _services["watcher"]["handler"] = None
-    _services["watcher"]["observer"] = None
 
     return {
         "status": "stopped",
-        "message": "Watcher stopped successfully",
+        "message": "Notion watcher stopped successfully",
     }
 
 
 @app.get("/watcher/status", response_model=WatcherStatusResponse)
 async def get_watcher_status():
-    """Get the current watcher state and statistics."""
+    """Get the current Notion watcher state and statistics."""
     db = get_db()
 
-    # Get doc counts
-    saved_state = load_saved_state(db)
-    current_state = get_current_doc_state()
+    # Get Notion page counts
+    saved_state = load_notion_state(db)
+
+    # Try to get current state from Notion
+    try:
+        notion = get_notion_client()
+        parent_id = get_parent_page_id()
+        current_state = get_current_notion_state(notion, parent_id)
+        current_count = len(current_state)
+    except Exception:
+        current_count = 0  # Notion not configured or error
 
     return WatcherStatusResponse(
         running=_services["watcher"]["running"],
         docs_tracked=len(saved_state),
-        current_docs=len(current_state),
+        current_docs=current_count,
         config=_services["watcher"]["config"],
         stats=_services["watcher"]["stats"],
     )
@@ -535,10 +532,10 @@ async def get_watcher_status():
 
 @app.post("/watcher/check", response_model=WatcherCheckResponse)
 async def check_watcher():
-    """Perform a one-time check for document changes (without starting continuous watch)."""
+    """Perform a one-time check for Notion document changes (without starting continuous watch)."""
     db = get_db()
 
-    result = check_and_process_changes(
+    result = check_notion_changes(
         db,
         should_post=False,  # Don't auto-post from API check
         approve=False,      # Don't send to Telegram
@@ -548,25 +545,25 @@ async def check_watcher():
 
     return WatcherCheckResponse(
         has_changes=result["has_changes"],
-        changes=result["changes"],
+        changes=result.get("changes", {}),
         post_content=result.get("post_content"),
         image_url=result.get("image_url"),
         post_url=result.get("post_url"),
-        skipped_files=result.get("skipped_files", []),
+        skipped_files=result.get("skipped_pages", []),
     )
 
 
 @app.post("/watcher/reset", response_model=dict)
 async def reset_watcher():
-    """Reset the document state (treats all docs as new on next check)."""
+    """Reset the Notion document state (treats all docs as new on next check)."""
     db = get_db()
     cursor = db.cursor()
-    cursor.execute("DELETE FROM doc_state")
+    cursor.execute("DELETE FROM notion_doc_state")
     db.commit()
 
     return {
         "status": "reset",
-        "message": "Document state cleared. All docs will be treated as new on next check.",
+        "message": "Notion document state cleared. All pages will be treated as new on next check.",
     }
 
 
@@ -577,7 +574,7 @@ async def reset_watcher():
 
 @app.post("/embeddings/init", response_model=EmbeddingsInitResponse)
 async def initialize_embeddings(background_tasks: BackgroundTasks):
-    """Initialize all embeddings from scratch (business docs, posts, responses)."""
+    """Initialize all embeddings from scratch (Notion docs, posts, responses)."""
     db = get_db()
 
     try:
@@ -586,7 +583,7 @@ async def initialize_embeddings(background_tasks: BackgroundTasks):
 
         # Get final stats
         stats = EmbeddingsStatsResponse(
-            business_docs=count_embeddings(db, "business_doc"),
+            business_docs=count_embeddings(db, "notion_doc"),
             posts=count_embeddings(db, "post"),
             responses=count_embeddings(db, "response"),
             total=count_embeddings(db),
@@ -594,7 +591,7 @@ async def initialize_embeddings(background_tasks: BackgroundTasks):
 
         return EmbeddingsInitResponse(
             success=True,
-            message="Embeddings initialized successfully",
+            message="Embeddings initialized successfully from Notion",
             stats=stats,
         )
     except Exception as e:
@@ -603,14 +600,14 @@ async def initialize_embeddings(background_tasks: BackgroundTasks):
 
 @app.post("/embeddings/refresh", response_model=EmbeddingsInitResponse)
 async def refresh_embeddings_endpoint():
-    """Refresh embeddings: re-embed changed docs, add new posts/responses."""
+    """Refresh embeddings: re-embed Notion docs, add new posts/responses."""
     db = get_db()
 
     try:
         refresh_embeddings()
 
         stats = EmbeddingsStatsResponse(
-            business_docs=count_embeddings(db, "business_doc"),
+            business_docs=count_embeddings(db, "notion_doc"),
             posts=count_embeddings(db, "post"),
             responses=count_embeddings(db, "response"),
             total=count_embeddings(db),
@@ -618,7 +615,7 @@ async def refresh_embeddings_endpoint():
 
         return EmbeddingsInitResponse(
             success=True,
-            message="Embeddings refreshed successfully",
+            message="Embeddings refreshed successfully from Notion",
             stats=stats,
         )
     except Exception as e:
@@ -631,7 +628,7 @@ async def get_embeddings_stats():
     db = get_db()
 
     return EmbeddingsStatsResponse(
-        business_docs=count_embeddings(db, "business_doc"),
+        business_docs=count_embeddings(db, "notion_doc"),
         posts=count_embeddings(db, "post"),
         responses=count_embeddings(db, "response"),
         total=count_embeddings(db),

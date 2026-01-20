@@ -1,14 +1,17 @@
 """
 Workshop 5 Frontend: Embedding generation using local MiniLM-L6-v2 model.
-(Copied from workshop-4 with path adjustments)
 
 Uses fastembed (ONNX-based) to run embeddings locally instead of API calls.
 MiniLM-L6-v2 produces 384-dimensional embeddings optimized for semantic similarity.
+
+Document source: Notion API
 """
 
-import re
+import os
 from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
 
 from database import (
     get_db,
@@ -21,8 +24,7 @@ from database import (
     rebuild_fts_index,
 )
 
-# Business docs directory - local to workshop-5-frontend
-BUSINESS_DOCS_DIR = Path(__file__).parent.parent / "business-docs"
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Global model instance (lazy loaded)
 _model = None
@@ -46,7 +48,6 @@ def generate_embedding(text: str) -> list[float]:
     Returns a 384-dimensional vector as a list of floats.
     """
     model = get_embedding_model()
-    # fastembed returns a generator, convert to list and get first result
     embeddings = list(model.embed([text]))
     return embeddings[0].tolist()
 
@@ -65,119 +66,144 @@ def generate_embeddings_batch(texts: list[str]) -> list[list[float]]:
     return [emb.tolist() for emb in embeddings]
 
 
-def chunk_business_doc(file_path: Path) -> list[dict]:
+# ========================================
+# NOTION DOCUMENT EMBEDDING
+# ========================================
+
+
+def fetch_notion_pages() -> list[dict]:
     """
-    Chunk a business document into sections for embedding.
+    Fetch all pages from Notion under the parent page.
 
-    CHUNKING STRATEGY:
-    - Split on ## headers to get semantically coherent sections
-    - Prepend document title for context
-    - Each chunk includes source attribution
+    Returns list of dicts with: id, title, content, last_edited
     """
-    content = file_path.read_text()
-    filename = file_path.name
+    from notion_watcher import (
+        get_notion_client,
+        get_parent_page_id,
+        get_child_pages,
+        get_page_content,
+    )
 
-    # Extract the main document title
-    title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
-    doc_title = title_match.group(1) if title_match else filename
+    notion = get_notion_client()
+    parent_id = get_parent_page_id()
 
-    # Split on ## headers
-    sections = re.split(r'(?=^##\s+)', content, flags=re.MULTILINE)
+    pages = []
+    child_pages = get_child_pages(notion, parent_id)
 
+    for page_info in child_pages:
+        page_data = get_page_content(notion, page_info["id"])
+        pages.append(page_data)
+
+    return pages
+
+
+def chunk_notion_content(title: str, content: str, page_id: str, max_chars: int = 1000) -> list[dict]:
+    """
+    Chunk Notion page content for embedding.
+
+    Each chunk includes the document title for context.
+    """
     chunks = []
-    for section in sections:
-        section = section.strip()
-        if not section:
+
+    # Split by double newlines (paragraphs)
+    paragraphs = content.split("\n\n")
+
+    current_chunk = f"# {title}\n\n"
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
             continue
 
-        # Extract section title
-        section_title_match = re.search(r'^##\s+(.+)$', section, re.MULTILINE)
-        section_title = section_title_match.group(1) if section_title_match else "Introduction"
+        # If adding this paragraph exceeds max, save current chunk and start new
+        if len(current_chunk) + len(para) > max_chars and len(current_chunk) > len(title) + 10:
+            chunks.append({
+                "content": current_chunk.strip(),
+                "metadata": {
+                    "source_type": "notion_doc",
+                    "page_id": page_id,
+                    "title": title,
+                    "chunk_index": len(chunks),
+                }
+            })
+            current_chunk = f"# {title}\n\n"
 
-        # Construct chunk with context
-        chunk_content = f"[From: {filename}]\n# {doc_title}\n\n{section}"
+        current_chunk += para + "\n\n"
 
+    # Don't forget the last chunk
+    if len(current_chunk.strip()) > len(title) + 10:
         chunks.append({
-            "content": chunk_content,
+            "content": current_chunk.strip(),
             "metadata": {
-                "source_file": filename,
-                "section_title": section_title,
-                "file_mtime": file_path.stat().st_mtime,
+                "source_type": "notion_doc",
+                "page_id": page_id,
+                "title": title,
+                "chunk_index": len(chunks),
             }
         })
 
-    # Fallback: whole document as one chunk
-    if not chunks:
+    # If no chunks were created, create one with whatever we have
+    if not chunks and content.strip():
         chunks.append({
-            "content": f"[From: {filename}]\n\n{content}",
+            "content": f"# {title}\n\n{content[:max_chars]}",
             "metadata": {
-                "source_file": filename,
-                "section_title": "Full Document",
-                "file_mtime": file_path.stat().st_mtime,
+                "source_type": "notion_doc",
+                "page_id": page_id,
+                "title": title,
+                "chunk_index": 0,
             }
         })
 
     return chunks
 
 
-def get_changed_business_docs(db_conn) -> list[Path]:
-    """Check which business docs have changed since last embedding."""
-    changed = []
-
-    if not BUSINESS_DOCS_DIR.exists():
-        return changed
-
-    for doc_path in sorted(BUSINESS_DOCS_DIR.glob("*.md")):
-        current_mtime = doc_path.stat().st_mtime
-
-        existing = get_embedding_by_source_id(db_conn, "business_doc", doc_path.name)
-
-        if existing is None:
-            changed.append(doc_path)
-        elif existing.get("metadata", {}).get("file_mtime", 0) < current_mtime:
-            changed.append(doc_path)
-
-    return changed
-
-
 def embed_business_docs(force: bool = False):
     """
-    Embed all business documents or only changed ones.
+    Embed business documents from Notion.
 
     Args:
-        force: If True, re-embed all documents. If False, only embed changed ones.
+        force: If True, re-embed all documents. If False, only embed new/changed ones.
     """
     db = get_db()
 
-    if not BUSINESS_DOCS_DIR.exists():
-        print(f"Business docs directory not found: {BUSINESS_DOCS_DIR}")
+    print("Fetching Notion pages...")
+    try:
+        pages = fetch_notion_pages()
+    except Exception as e:
+        print(f"Error fetching Notion pages: {e}")
+        print("Make sure NOTION_API_KEY and NOTION_PARENT_PAGE_ID are set.")
         return
+
+    if not pages:
+        print("No Notion pages found.")
+        return
+
+    print(f"Found {len(pages)} Notion page(s)")
 
     if force:
-        print("Force refresh: deleting existing business doc embeddings...")
-        deleted = delete_embeddings_by_source(db, "business_doc")
+        print("Force refresh: deleting existing doc embeddings...")
+        deleted = delete_embeddings_by_source(db, "notion_doc")
+        deleted += delete_embeddings_by_source(db, "business_doc")  # Clean up legacy
         print(f"Deleted {deleted} existing embeddings")
-        docs_to_process = list(sorted(BUSINESS_DOCS_DIR.glob("*.md")))
-    else:
-        docs_to_process = get_changed_business_docs(db)
 
-    if not docs_to_process:
-        print("No business documents need embedding.")
-        return
+    total_chunks = 0
+    for page in pages:
+        page_id = page["id"]
+        title = page["title"]
+        content = page["content"]
 
-    print(f"Processing {len(docs_to_process)} document(s)...")
+        if not content.strip():
+            print(f"  Skipping {title}: no content")
+            continue
 
-    for doc_path in docs_to_process:
-        print(f"\nProcessing: {doc_path.name}")
+        # Delete existing embeddings for this page
+        delete_embeddings_by_source(db, "notion_doc", page_id)
 
-        # Delete existing embeddings for this file
-        delete_embeddings_by_source(db, "business_doc", doc_path.name)
+        # Chunk the content
+        chunks = chunk_notion_content(title, content, page_id)
+        print(f"  {title}: {len(chunks)} chunk(s)")
 
-        # Chunk the document
-        chunks = chunk_business_doc(doc_path)
-        print(f"  Created {len(chunks)} chunk(s)")
-
-        # Generate embeddings for all chunks in batch
+        # Generate embeddings
         chunk_texts = [c["content"] for c in chunks]
         embeddings = generate_embeddings_batch(chunk_texts)
 
@@ -185,21 +211,20 @@ def embed_business_docs(force: bool = False):
         for chunk, embedding in zip(chunks, embeddings):
             save_embedding(
                 db,
-                source_type="business_doc",
+                source_type="notion_doc",
                 content=chunk["content"],
                 embedding=embedding,
-                source_id=doc_path.name,
+                source_id=page_id,
                 metadata=chunk["metadata"],
             )
 
-        print(f"  Saved {len(chunks)} embedding(s)")
+        total_chunks += len(chunks)
 
-    # Rebuild FTS index after bulk operations
+    # Rebuild FTS index
     print("Rebuilding FTS index...")
     rebuild_fts_index(db)
 
-    total = count_embeddings(db, "business_doc")
-    print(f"\nTotal business doc embeddings: {total}")
+    print(f"\nTotal Notion doc embeddings: {total_chunks}")
 
 
 def embed_posts():
@@ -275,10 +300,11 @@ def embed_responses():
 def init_embeddings():
     """Initialize embeddings from all sources."""
     print("=" * 60)
-    print("INITIALIZING EMBEDDINGS (using local MiniLM-L6-v2 via ONNX)")
+    print("INITIALIZING EMBEDDINGS")
+    print("Document source: Notion")
     print("=" * 60)
 
-    print("\n--- Business Documents ---")
+    print("\n--- Business Documents (Notion) ---")
     embed_business_docs(force=True)
 
     print("\n--- Posts ---")
@@ -289,20 +315,21 @@ def init_embeddings():
 
     print("\n--- Summary ---")
     db = get_db()
-    print(f"Business doc embeddings: {count_embeddings(db, 'business_doc')}")
+    print(f"Notion doc embeddings: {count_embeddings(db, 'notion_doc')}")
     print(f"Post embeddings: {count_embeddings(db, 'post')}")
     print(f"Response embeddings: {count_embeddings(db, 'response')}")
     print(f"Total embeddings: {count_embeddings(db)}")
 
 
 def refresh_embeddings():
-    """Refresh embeddings: re-embed changed business docs, add new posts/responses."""
+    """Refresh embeddings: re-embed docs from Notion, add new posts/responses."""
     print("=" * 60)
     print("REFRESHING EMBEDDINGS")
+    print("Document source: Notion")
     print("=" * 60)
 
-    print("\n--- Checking Business Documents ---")
-    embed_business_docs(force=False)
+    print("\n--- Business Documents (Notion) ---")
+    embed_business_docs(force=True)  # Always refresh from Notion
 
     print("\n--- Checking Posts ---")
     embed_posts()
@@ -312,7 +339,7 @@ def refresh_embeddings():
 
     print("\n--- Summary ---")
     db = get_db()
-    print(f"Business doc embeddings: {count_embeddings(db, 'business_doc')}")
+    print(f"Notion doc embeddings: {count_embeddings(db, 'notion_doc')}")
     print(f"Post embeddings: {count_embeddings(db, 'post')}")
     print(f"Response embeddings: {count_embeddings(db, 'response')}")
     print(f"Total embeddings: {count_embeddings(db)}")
@@ -321,7 +348,7 @@ def refresh_embeddings():
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Manage RAG embeddings (local MiniLM-L6-v2 via ONNX)")
+    parser = argparse.ArgumentParser(description="Manage RAG embeddings (Notion + local MiniLM-L6-v2)")
     parser.add_argument(
         "--init",
         action="store_true",
@@ -330,7 +357,7 @@ def main():
     parser.add_argument(
         "--refresh",
         action="store_true",
-        help="Refresh embeddings (re-embed changed docs, add new posts/responses)",
+        help="Refresh embeddings from Notion",
     )
     parser.add_argument(
         "--stats",
@@ -347,7 +374,7 @@ def main():
     elif args.stats:
         db = get_db()
         print("Embedding Statistics:")
-        print(f"  Business docs: {count_embeddings(db, 'business_doc')}")
+        print(f"  Notion docs: {count_embeddings(db, 'notion_doc')}")
         print(f"  Posts: {count_embeddings(db, 'post')}")
         print(f"  Responses: {count_embeddings(db, 'response')}")
         print(f"  Total: {count_embeddings(db)}")
