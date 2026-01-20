@@ -800,6 +800,16 @@ def check_notion_changes(
     print("\n--- Generating Post ---")
     post_result = generate_change_post(change_summary, changes)
     post_content = post_result["content"]
+
+    # Ensure #AIgenerated hashtag is present
+    hashtag = "#AIgenerated"
+    if hashtag.lower() not in post_content.lower():
+        if len(post_content) + len(hashtag) + 2 <= 500:
+            post_content = post_content.rstrip() + "\n\n" + hashtag
+        else:
+            max_len = 500 - len(hashtag) - 2
+            post_content = post_content[:max_len].rstrip() + "\n\n" + hashtag
+
     result["post_content"] = post_content
 
     print("\n" + "=" * 60)

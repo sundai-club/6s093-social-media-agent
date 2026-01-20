@@ -583,6 +583,15 @@ Generate just the post text, nothing else."""
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate post: {str(e)}")
 
+    # Ensure #AIgenerated hashtag is present
+    hashtag = "#AIgenerated"
+    if hashtag.lower() not in post_content.lower():
+        if len(post_content) + len(hashtag) + 2 <= 500:
+            post_content = post_content.rstrip() + "\n\n" + hashtag
+        else:
+            max_len = 500 - len(hashtag) - 2
+            post_content = post_content[:max_len].rstrip() + "\n\n" + hashtag
+
     # Generate image if requested
     image_url = None
     image_prompt = None
