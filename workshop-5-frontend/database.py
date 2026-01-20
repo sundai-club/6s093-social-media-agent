@@ -41,10 +41,17 @@ def init_db(conn: sqlite3.Connection) -> None:
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
             post_url TEXT,
+            image_url TEXT,
             posted BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Add image_url column if it doesn't exist (migration for existing DBs)
+    try:
+        cursor.execute("ALTER TABLE posts ADD COLUMN image_url TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Table for keyword responses
     cursor.execute("""
@@ -302,16 +309,17 @@ def save_post(
     conn: sqlite3.Connection,
     content: str,
     post_url: Optional[str] = None,
+    image_url: Optional[str] = None,
     posted: bool = False,
 ) -> int:
     """Save a generated post to the database."""
     cursor = conn.cursor()
     cursor.execute(
         """
-        INSERT INTO posts (content, post_url, posted, created_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO posts (content, post_url, image_url, posted, created_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (content, post_url, posted, datetime.now().isoformat()),
+        (content, post_url, image_url, posted, datetime.now().isoformat()),
     )
     conn.commit()
     return cursor.lastrowid

@@ -535,7 +535,7 @@ async def generate_post(request: GeneratePostRequest):
         from embeddings import generate_embedding
         query_embedding = generate_embedding(rag_query)
         rag_results = hybrid_search(rag_query, query_embedding, top_k=3)
-        rag_context = retrieve_context(rag_query, top_k=3)
+        rag_context, _ = retrieve_context(rag_query, query_embedding, top_k=3)
     except Exception as e:
         print(f"RAG retrieval error: {e}")
         rag_context = ""
