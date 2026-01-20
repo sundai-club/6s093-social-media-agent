@@ -132,6 +132,18 @@ class PostResponse(BaseModel):
     created_at: str
 
 
+class GeneratePostRequest(BaseModel):
+    context: str = Field(default="", description="Optional topic or context for the post")
+    generate_image: bool = Field(default=True, description="Whether to generate an AI image")
+
+
+class GeneratePostResponse(BaseModel):
+    id: int
+    content: str
+    image_url: Optional[str]
+    created_at: str
+
+
 class KeywordResponse(BaseModel):
     id: int
     original_post_id: str
@@ -381,10 +393,15 @@ async def get_post(post_id: int):
     return PostResponse(**post)
 
 
+class PublishPostRequest(BaseModel):
+    image_url: Optional[str] = Field(default=None, description="Optional image URL to include")
+
+
 @app.post("/posts/{post_id}/publish", response_model=dict)
-async def publish_post(post_id: int):
-    """Publish a pending post to Mastodon immediately."""
+async def publish_post(post_id: int, request: PublishPostRequest = None):
+    """Publish a pending post to Mastodon immediately, optionally with an image."""
     from mastodon import Mastodon
+    import requests
 
     db = get_db()
     post = get_post_by_id(db, post_id)
@@ -411,7 +428,25 @@ async def publish_post(post_id: int):
             access_token=access_token,
             api_base_url=instance_url,
         )
-        status = mastodon.status_post(post["content"])
+
+        # Handle image if provided
+        media_ids = None
+        if request and request.image_url:
+            try:
+                # Download image
+                img_response = requests.get(request.image_url)
+                img_response.raise_for_status()
+                local_path = "/tmp/temp_post_image.webp"
+                with open(local_path, "wb") as f:
+                    f.write(img_response.content)
+                # Upload to Mastodon
+                media = mastodon.media_post(local_path)
+                media_ids = [media]
+            except Exception as e:
+                print(f"Failed to attach image: {e}")
+                # Continue without image
+
+        status = mastodon.status_post(post["content"], media_ids=media_ids)
         post_url = status.get("url", "")
 
         # Update database
@@ -430,6 +465,95 @@ async def publish_post(post_id: int):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to post: {str(e)}")
+
+
+@app.post("/posts/generate", response_model=GeneratePostResponse)
+async def generate_post(request: GeneratePostRequest):
+    """Generate a new post using LLM and optionally an AI image."""
+    from openai import OpenAI
+    from database import save_post
+    from datetime import datetime
+
+    db = get_db()
+
+    # Get OpenRouter client
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if not openrouter_key:
+        raise HTTPException(status_code=400, detail="OPENROUTER_API_KEY must be set")
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=openrouter_key,
+    )
+
+    # Build the prompt
+    context_text = request.context.strip() if request.context else ""
+
+    # Get Notion docs for context via RAG
+    try:
+        from rag import retrieve_context
+        query = context_text if context_text else "AI consulting services and insights"
+        rag_context = retrieve_context(query, top_k=3)
+    except Exception:
+        rag_context = ""
+
+    system_prompt = """You are a social media manager for Emanon, an AI news and consulting platform.
+Your task is to create engaging Mastodon posts that:
+- Are concise (under 400 characters)
+- Highlight Emanon's no-hype, practical approach to AI
+- Include 1-2 relevant hashtags
+- Sound authentic, not salesy
+- Share ONE interesting insight
+
+Write in a conversational but professional tone."""
+
+    user_prompt = f"""Create a single engaging Mastodon post for Emanon.
+
+{f'Topic/Context: {context_text}' if context_text else 'Share a valuable AI insight or tip.'}
+
+{f'Background information from our docs:{chr(10)}{rag_context[:1500]}' if rag_context else ''}
+
+Generate just the post text, nothing else."""
+
+    try:
+        response = client.chat.completions.create(
+            model="google/gemini-2.0-flash-001",
+            max_tokens=300,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        post_content = response.choices[0].message.content.strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate post: {str(e)}")
+
+    # Generate image if requested
+    image_url = None
+    if request.generate_image:
+        try:
+            import replicate
+            replicate_token = os.environ.get("REPLICATE_API_TOKEN")
+            if replicate_token:
+                image_prompt = f"annddrreeww, 24 years old male, presenting about: {post_content[:200]}"
+                output = replicate.run(
+                    "sundai-club/andrews_model:f5211077a830f0b1cb51e541d4f591fae107a7617ce6cc54fd23c205cae0c1b5",
+                    input={"prompt": image_prompt},
+                )
+                image_url = str(output[0]) if output else None
+        except Exception as e:
+            print(f"Image generation failed: {e}")
+            # Continue without image
+
+    # Save to database
+    post_id = save_post(db, post_content, posted=False)
+
+    return GeneratePostResponse(
+        id=post_id,
+        content=post_content,
+        image_url=image_url,
+        created_at=datetime.now().isoformat(),
+    )
 
 
 # ========================================

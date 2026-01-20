@@ -407,8 +407,77 @@
             </div>
         </section>
 
-        <!-- Quick Actions -->
+        <!-- Create Post -->
         <section class="card rounded-2xl p-6 mb-8 animate-in delay-4">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                </div>
+                <h3 class="font-semibold">Create Post</h3>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm text-muted mb-2">Topic or context (optional)</label>
+                    <textarea
+                        x-model="newPostContext"
+                        placeholder="e.g., Write about our latest AI consulting services, or share a tip about prompt engineering..."
+                        class="w-full px-4 py-3 rounded-xl bg-surface-2 border border-edge text-gray-200 text-sm placeholder-muted focus:outline-none focus:border-amber-500/50 resize-none"
+                        rows="3"
+                    ></textarea>
+                </div>
+
+                <div class="flex items-center gap-4">
+                    <button
+                        @click="generatePost()"
+                        :disabled="loading"
+                        class="btn-post px-6 py-2.5 rounded-xl text-void text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                        <span x-show="!loading || loadingAction !== 'generate'">Generate Post</span>
+                        <span x-show="loading && loadingAction === 'generate'" class="flex items-center gap-2">
+                            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Generating...
+                        </span>
+                    </button>
+                    <label class="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
+                        <input type="checkbox" x-model="generateWithImage" class="w-4 h-4 rounded">
+                        <span>Include AI image</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Generated Post Preview -->
+            <div x-show="generatedPost" x-transition class="mt-4 p-4 rounded-xl bg-surface/50 border border-amber-500/20">
+                <p class="text-xs text-amber-400 uppercase tracking-wider mb-2">Generated Post</p>
+                <p class="text-sm text-gray-300 leading-relaxed mb-3" x-text="generatedPost?.content"></p>
+                <template x-if="generatedPost?.image_url">
+                    <img :src="generatedPost.image_url" class="w-full max-w-md rounded-lg mb-3" alt="Generated image">
+                </template>
+                <div class="flex items-center gap-2">
+                    <button
+                        @click="postGeneratedNow()"
+                        :disabled="loading"
+                        class="btn-post px-4 py-1.5 rounded-lg text-void text-sm font-semibold disabled:opacity-50"
+                    >
+                        Post Now
+                    </button>
+                    <button
+                        @click="generatedPost = null"
+                        class="px-4 py-1.5 rounded-lg bg-surface-3 text-gray-400 text-sm font-medium hover:bg-edge transition-colors"
+                    >
+                        Discard
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Quick Actions -->
+        <section class="card rounded-2xl p-6 mb-8 animate-in delay-5">
             <h3 class="font-semibold mb-4">Quick Actions</h3>
             <div class="flex flex-wrap gap-2">
                 <button
@@ -537,6 +606,9 @@
                 loading: false,
                 loadingAction: null,
                 actionResult: null,
+                newPostContext: '',
+                generateWithImage: true,
+                generatedPost: null,
 
                 watcherConfig: {
                     should_post: false,
@@ -596,6 +668,54 @@
                             throw new Error(data.detail || 'Failed to post');
                         }
                         this.showResult(true, 'Posted to Mastodon!');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async generatePost() {
+                    this.loading = true;
+                    this.loadingAction = 'generate';
+                    this.generatedPost = null;
+                    try {
+                        const res = await fetch('/posts/generate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                context: this.newPostContext,
+                                generate_image: this.generateWithImage
+                            })
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data.detail || 'Failed to generate');
+                        this.generatedPost = data;
+                        this.showResult(true, 'Post generated! Review and publish below.');
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                    this.loadingAction = null;
+                },
+
+                async postGeneratedNow() {
+                    if (!this.generatedPost?.id) return;
+                    this.loading = true;
+                    try {
+                        const res = await fetch(`/posts/${this.generatedPost.id}/publish`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ image_url: this.generatedPost.image_url })
+                        });
+                        if (!res.ok) {
+                            const data = await res.json();
+                            throw new Error(data.detail || 'Failed to post');
+                        }
+                        this.showResult(true, 'Posted to Mastodon!');
+                        this.generatedPost = null;
+                        this.newPostContext = '';
                         await this.refresh();
                     } catch (e) {
                         this.showResult(false, e.message);
