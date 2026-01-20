@@ -8,6 +8,7 @@ Document source: Notion API
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -97,11 +98,42 @@ def fetch_notion_pages() -> list[dict]:
     return pages
 
 
+def _split_large_text(text: str, max_chars: int) -> list[str]:
+    """
+    Split large text by sentences, falling back to character splits.
+
+    Used when a single paragraph exceeds max_chars.
+    """
+    # Split by sentence boundaries
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+
+    pieces = []
+    current = ""
+    for sent in sentences:
+        if len(current) + len(sent) > max_chars and current:
+            pieces.append(current.strip())
+            current = ""
+        current += sent + " "
+    if current.strip():
+        pieces.append(current.strip())
+
+    # If any piece is still too large, hard split by characters
+    final = []
+    for p in pieces:
+        while len(p) > max_chars:
+            final.append(p[:max_chars])
+            p = p[max_chars:]
+        if p:
+            final.append(p)
+    return final
+
+
 def chunk_notion_content(title: str, content: str, page_id: str, max_chars: int = 1000) -> list[dict]:
     """
     Chunk Notion page content for embedding.
 
     Each chunk includes the document title for context.
+    Handles large paragraphs by splitting them into smaller pieces.
     """
     chunks = []
 
@@ -109,29 +141,37 @@ def chunk_notion_content(title: str, content: str, page_id: str, max_chars: int 
     paragraphs = content.split("\n\n")
 
     current_chunk = f"# {title}\n\n"
+    title_overhead = len(title) + 10  # Account for "# title\n\n"
 
     for para in paragraphs:
         para = para.strip()
         if not para:
             continue
 
-        # If adding this paragraph exceeds max, save current chunk and start new
-        if len(current_chunk) + len(para) > max_chars and len(current_chunk) > len(title) + 10:
-            chunks.append({
-                "content": current_chunk.strip(),
-                "metadata": {
-                    "source_type": "notion_doc",
-                    "page_id": page_id,
-                    "title": title,
-                    "chunk_index": len(chunks),
-                }
-            })
-            current_chunk = f"# {title}\n\n"
+        # Split large paragraphs into smaller pieces
+        if len(para) > max_chars - title_overhead:
+            para_pieces = _split_large_text(para, max_chars - title_overhead)
+        else:
+            para_pieces = [para]
 
-        current_chunk += para + "\n\n"
+        for piece in para_pieces:
+            # If adding this piece exceeds max, save current chunk and start new
+            if len(current_chunk) + len(piece) > max_chars and len(current_chunk) > title_overhead:
+                chunks.append({
+                    "content": current_chunk.strip(),
+                    "metadata": {
+                        "source_type": "notion_doc",
+                        "page_id": page_id,
+                        "title": title,
+                        "chunk_index": len(chunks),
+                    }
+                })
+                current_chunk = f"# {title}\n\n"
+
+            current_chunk += piece + "\n\n"
 
     # Don't forget the last chunk
-    if len(current_chunk.strip()) > len(title) + 10:
+    if len(current_chunk.strip()) > title_overhead:
         chunks.append({
             "content": current_chunk.strip(),
             "metadata": {
@@ -228,13 +268,33 @@ def embed_business_docs(force: bool = False):
 
 
 def embed_posts():
-    """Embed all posts that don't have embeddings yet."""
+    """Embed only posted (published) posts that don't have embeddings yet."""
     db = get_db()
 
-    posts = get_all_posts(db)
+    all_posts = get_all_posts(db)
+
+    # Only embed posts that have been published (posted=True)
+    posted_posts = [p for p in all_posts if p.get("posted")]
+    unpublished_posts = [p for p in all_posts if not p.get("posted")]
+
+    # Delete embeddings for unpublished posts (in case they were previously embedded)
+    deleted_count = 0
+    for post in unpublished_posts:
+        post_id = str(post["id"])
+        existing = get_embedding_by_source_id(db, "post", post_id)
+        if existing:
+            from database import delete_embeddings_by_source
+            # Delete this specific post's embedding by source_id
+            cursor = db.cursor()
+            cursor.execute("DELETE FROM embeddings WHERE source_type = ? AND source_id = ?", ("post", post_id))
+            db.commit()
+            deleted_count += 1
+
+    if deleted_count > 0:
+        print(f"Removed {deleted_count} embedding(s) for unpublished posts")
 
     new_count = 0
-    for post in posts:
+    for post in posted_posts:
         post_id = str(post["id"])
 
         existing = get_embedding_by_source_id(db, "post", post_id)
@@ -256,8 +316,10 @@ def embed_posts():
         new_count += 1
 
     if new_count > 0:
-        print(f"Embedded {new_count} new post(s)")
+        print(f"Embedded {new_count} new posted post(s)")
         rebuild_fts_index(db)
+    else:
+        print(f"No new posted posts to embed ({len(posted_posts)} already embedded or 0 posted)")
 
     return new_count
 
