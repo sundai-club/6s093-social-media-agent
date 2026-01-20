@@ -452,25 +452,58 @@
             </div>
 
             <!-- Generated Post Preview -->
-            <div x-show="generatedPost" x-transition class="mt-4 p-4 rounded-xl bg-surface/50 border border-amber-500/20">
-                <p class="text-xs text-amber-400 uppercase tracking-wider mb-2">Generated Post</p>
-                <p class="text-sm text-gray-300 leading-relaxed mb-3" x-text="generatedPost?.content"></p>
-                <template x-if="generatedPost?.image_url">
-                    <img :src="generatedPost.image_url" class="w-full max-w-md rounded-lg mb-3" alt="Generated image">
-                </template>
-                <div class="flex items-center gap-2">
-                    <button
-                        @click="postGeneratedNow()"
-                        :disabled="loading"
-                        class="btn-post px-4 py-1.5 rounded-lg text-void text-sm font-semibold disabled:opacity-50"
+            <div x-show="generatedPost" x-transition class="mt-5 p-5 rounded-xl bg-surface border border-amber-500/30">
+                <div class="flex items-center justify-between mb-3">
+                    <p class="text-xs text-amber-400 uppercase tracking-wider font-medium">Review Generated Post</p>
+                    <span class="text-xs text-muted font-mono" x-text="generatedPost?.content?.length + ' chars'"></span>
+                </div>
+
+                <!-- Image Preview -->
+                <div x-show="generatedPost?.image_url" class="mb-4">
+                    <img
+                        x-bind:src="generatedPost?.image_url"
+                        class="w-full max-w-sm rounded-xl border border-edge"
+                        alt="Generated AI image"
+                        @error="$el.style.display='none'"
                     >
-                        Post Now
+                </div>
+
+                <!-- Post Content -->
+                <div class="p-4 rounded-lg bg-surface-2 border border-edge/50 mb-4">
+                    <p class="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap" x-text="generatedPost?.content"></p>
+                </div>
+
+                <!-- Approve / Reject Buttons -->
+                <div class="flex items-center gap-3">
+                    <button
+                        @click="approvePost()"
+                        :disabled="loading"
+                        class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                    >
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Approve & Post
                     </button>
                     <button
-                        @click="generatedPost = null"
-                        class="px-4 py-1.5 rounded-lg bg-surface-3 text-gray-400 text-sm font-medium hover:bg-edge transition-colors"
+                        @click="rejectPost()"
+                        :disabled="loading"
+                        class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-rose-500/20 text-rose-400 text-sm font-semibold hover:bg-rose-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                     >
-                        Discard
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Reject
+                    </button>
+                    <button
+                        @click="regeneratePost()"
+                        :disabled="loading"
+                        class="px-4 py-2.5 rounded-xl bg-surface-3 text-gray-400 text-sm font-medium hover:bg-edge hover:text-gray-300 disabled:opacity-50 transition-colors flex items-center gap-2"
+                    >
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Regenerate
                     </button>
                 </div>
             </div>
@@ -700,7 +733,7 @@
                     this.loadingAction = null;
                 },
 
-                async postGeneratedNow() {
+                async approvePost() {
                     if (!this.generatedPost?.id) return;
                     this.loading = true;
                     try {
@@ -713,7 +746,7 @@
                             const data = await res.json();
                             throw new Error(data.detail || 'Failed to post');
                         }
-                        this.showResult(true, 'Posted to Mastodon!');
+                        this.showResult(true, 'Approved and posted to Mastodon!');
                         this.generatedPost = null;
                         this.newPostContext = '';
                         await this.refresh();
@@ -721,6 +754,41 @@
                         this.showResult(false, e.message);
                     }
                     this.loading = false;
+                },
+
+                async rejectPost() {
+                    if (!this.generatedPost?.id) return;
+                    this.loading = true;
+                    try {
+                        // Delete the rejected post from database
+                        const res = await fetch(`/posts/${this.generatedPost.id}`, {
+                            method: 'DELETE'
+                        });
+                        if (!res.ok) {
+                            const data = await res.json();
+                            throw new Error(data.detail || 'Failed to delete');
+                        }
+                        this.showResult(true, 'Post rejected and deleted');
+                        this.generatedPost = null;
+                        await this.refresh();
+                    } catch (e) {
+                        this.showResult(false, e.message);
+                    }
+                    this.loading = false;
+                },
+
+                async regeneratePost() {
+                    // Delete old post first if exists
+                    if (this.generatedPost?.id) {
+                        try {
+                            await fetch(`/posts/${this.generatedPost.id}`, { method: 'DELETE' });
+                        } catch (e) {
+                            console.log('Could not delete old post:', e);
+                        }
+                    }
+                    this.generatedPost = null;
+                    // Generate new one with same context
+                    await this.generatePost();
                 },
 
                 async startWatcher() {

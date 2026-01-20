@@ -393,6 +393,25 @@ async def get_post(post_id: int):
     return PostResponse(**post)
 
 
+@app.delete("/posts/{post_id}", response_model=dict)
+async def delete_post(post_id: int):
+    """Delete a post (only unpublished posts can be deleted)."""
+    db = get_db()
+    post = get_post_by_id(db, post_id)
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post["posted"]:
+        raise HTTPException(status_code=400, detail="Cannot delete a published post")
+
+    cursor = db.cursor()
+    cursor.execute("DELETE FROM posts WHERE id = ?", (post_id,))
+    db.commit()
+
+    return {"success": True, "message": "Post deleted"}
+
+
 class PublishPostRequest(BaseModel):
     image_url: Optional[str] = Field(default=None, description="Optional image URL to include")
 
