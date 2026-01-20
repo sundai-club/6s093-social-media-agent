@@ -46,14 +46,11 @@ DEBOUNCE_DELAY = 2.0
 
 
 def generate_image(prompt: str) -> str:
-    """Generate an image using the diffusion model."""
+    """Generate an image using Andrew's fine-tuned model with trigger word 'annddrreeww'."""
     output = replicate.run(
-        "sundai-club/artems_dog_model:7103c7f706fe1429cf4bdb282ee81dfc218d643788b56f28dc6549c7dfb70967",
+        "sundai-club/andrews_model:f5211077a830f0b1cb51e541d4f591fae107a7617ce6cc54fd23c205cae0c1b5",
         input={
             "prompt": prompt,
-            "num_inference_steps": 28,
-            "guidance_scale": 7.5,
-            "model": "dev",
         },
     )
     return str(output[0])
@@ -630,7 +627,7 @@ def check_and_process_changes(
     # Generate image for the post
     print("\n--- Generating Image ---")
     try:
-        image_prompt = f"A cartoon noir style image of a detective dog doing something related to: {post_content[:200]}"
+        image_prompt = f"annddrreeww presenting about: {post_content[:200]}"
         image_url = generate_image(image_prompt)
         result["image_url"] = image_url
         print(f"Image generated: {image_url}")
