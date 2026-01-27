@@ -28,28 +28,8 @@ add telegram bot integration so we can approve posts before they go live. send t
 
 # Workshop 3
 
-Prerequisites: GCloud account with billing setup ($300 free credits), gcloud CLI installed (brew install google-cloud-sdk on Mac)
+Prerequisites: A GCloud account with billing enabled ($300 free credits) and the gcloud CLI installed (brew install google-cloud-sdk on Mac).
+First, figure out which GCloud account I am currently logged into and list all projects associated with that account. Set the default project to the one that contains “iap” in its name. Enable any required APIs, then deploy an e2-micro VM in that project (billing is already set up). Once the VM is created, use the gcloud CLI to SSH into the instance, install SQLite, and prepare the machine for application deployment.
 
-1.
-which gcloud account am I logged into and which projects does it have? Set the default project to the one with iap in the name
 
-2.
-can we deploy a e2 vm to that project? Please turn on any necessary apis
-
-3.
-the billing is setup. and let's use e2-micro size
-
-4.
-we have this virtual machine in gcloud. you have the gcloud cli to ssh into that machine. We need to install sqlite
-
-5.
-let's also deploy a fastapi server that uses that database and make sure the fast api is setup properly as a service on linux so it persists when we restart the instance
-
-(Optional) 6.
-can you set up a cron job to automatically run the post generator every day at 9am? skip the telegram approval for automated posts
-
-7.
-let's kill that vm so we save costs
-
-8.
-delete that too and find any other items to clean up
+Next, deploy a FastAPI server on the VM that uses SQLite as its database. Make sure the FastAPI app is configured as a proper Linux service (for example, using systemd) so that it continues running after the VM is restarted. Set up a cron job to run the post generator every day at 9am with Telegram approval still required before any post goes live. 
